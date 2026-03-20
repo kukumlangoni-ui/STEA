@@ -175,6 +175,9 @@ function TipsManager() {
               <Input value={form.thumb} onChange={e=>setForm(f=>({...f,thumb:e.target.value}))} placeholder="📱"/>
             </Field>
           </div>
+          <Field label="Thumb Image URL (optional — badala ya emoji)">
+            <Input value={form.thumbImg||""} onChange={e=>setForm(f=>({...f,thumbImg:e.target.value}))} placeholder="https://example.com/picha.jpg"/>
+          </Field>
 
           <Field label="Title *">
             <Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Andika title ya post hapa..."/>
@@ -328,10 +331,13 @@ function UpdatesManager() {
             <Field label="Category">
               <Input value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} placeholder="Artificial Intelligence"/>
             </Field>
-            <Field label="Thumb Emoji">
+            <Field label="Thumb Emoji (au weka URL chini)">
               <Input value={form.thumb} onChange={e=>setForm(f=>({...f,thumb:e.target.value}))} placeholder="🧠"/>
             </Field>
           </div>
+          <Field label="Thumb Image URL (optional — badala ya emoji)">
+            <Input value={form.thumbImg||""} onChange={e=>setForm(f=>({...f,thumbImg:e.target.value}))} placeholder="https://example.com/image.jpg"/>
+          </Field>
 
           <Field label="Title *">
             <Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Habari title..."/>
