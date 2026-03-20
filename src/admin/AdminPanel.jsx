@@ -458,7 +458,7 @@ function UpdatesManager() {
 // ══════════════════════════════════════════════════════
 function DealsManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ icon:"🎨", name:"", domain:"", url:"", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", badge:"", bt:"gold", meta:"", desc:"", oldP:"", newP:"", save:"", code:"", ref:false, active:true });
+  const [form, setForm] = useState({ title:"", oldPrice:"", newPrice:"", savePercent:"", promoCode:"", link:"", category:"", icon:"🎨", bgClass:"bg-gradient-to-br from-[#00c4cc] to-[#7d2ae8]" });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast,   setToast]   = useState(null);
@@ -479,13 +479,13 @@ function DealsManager() {
   }, [loadDocs]);
 
   const save = async () => {
-    if (!form.name.trim()||!form.url.trim()) { toast_("Weka jina na URL kwanza","error"); return; }
+    if (!form.title.trim()||!form.link.trim()) { toast_("Weka jina na Link kwanza","error"); return; }
     setLoading(true);
     try {
       const data = { ...form, createdAt: serverTimestamp() };
       if (editing) { await updateDoc(doc(db,"deals",editing), {...data,createdAt:undefined}); toast_("Imesahihishwa!"); }
       else          { await addDoc(collection(db,"deals"), data); toast_("Deal imewekwa live!"); }
-      setForm({ icon:"🎨", name:"", domain:"", url:"", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", badge:"", bt:"gold", meta:"", desc:"", oldP:"", newP:"", save:"", code:"", ref:false, active:true });
+      setForm({ title:"", oldPrice:"", newPrice:"", savePercent:"", promoCode:"", link:"", category:"", icon:"🎨", bgClass:"bg-gradient-to-br from-[#00c4cc] to-[#7d2ae8]" });
       setEditing(null); loadDocs();
     } catch(e) { toast_(e.message,"error"); }
     setLoading(false);
@@ -508,11 +508,6 @@ function DealsManager() {
     });
   };
 
-  const toggle = async (item) => {
-    await updateDoc(doc(db,"deals",item.id), { active:!item.active });
-    loadDocs();
-  };
-
   return (
     <div>
       {toast   && <Toast msg={toast.msg} type={toast.type}/>}
@@ -525,41 +520,20 @@ function DealsManager() {
         <div style={{ display:"grid", gap:16 }}>
           <div style={{ display:"grid", gridTemplateColumns:"60px 1fr 1fr", gap:16 }}>
             <Field label="Icon"><Input value={form.icon} onChange={e=>setForm(f=>({...f,icon:e.target.value}))} placeholder="🎨"/></Field>
-            <Field label="Jina la Deal *"><Input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Canva Pro"/></Field>
-            <Field label="Domain"><Input value={form.domain} onChange={e=>setForm(f=>({...f,domain:e.target.value}))} placeholder="canva.com"/></Field>
+            <Field label="Jina la Deal *"><Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Canva Pro"/></Field>
+            <Field label="Category"><Input value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} placeholder="Design"/></Field>
           </div>
-          <Field label="URL ya Affiliate Link *"><Input value={form.url} onChange={e=>setForm(f=>({...f,url:e.target.value}))} placeholder="https://canva.com/affiliates/..."/></Field>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <Field label="Badge Text"><Input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="-60%"/></Field>
-            <Field label="Badge Color">
-              <Select value={form.bt} onChange={e=>setForm(f=>({...f,bt:e.target.value}))}>
-                <option value="gold">Gold</option><option value="blue">Blue</option>
-                <option value="red">Red</option><option value="purple">Purple</option><option value="gray">Gray</option>
-              </Select>
-            </Field>
+          <Field label="Link (URL) *"><Input value={form.link} onChange={e=>setForm(f=>({...f,link:e.target.value}))} placeholder="https://canva.com/affiliates/..."/></Field>
+          
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
+            <Field label="Bei ya zamani"><Input value={form.oldPrice} onChange={e=>setForm(f=>({...f,oldPrice:e.target.value}))} placeholder="$15/mo"/></Field>
+            <Field label="Bei mpya"><Input value={form.newPrice} onChange={e=>setForm(f=>({...f,newPrice:e.target.value}))} placeholder="$6/mo"/></Field>
+            <Field label="Save Percent"><Input value={form.savePercent} onChange={e=>setForm(f=>({...f,savePercent:e.target.value}))} placeholder="60%"/></Field>
           </div>
-          <Field label="Meta (Partner deal · Promo code)"><Input value={form.meta} onChange={e=>setForm(f=>({...f,meta:e.target.value}))} placeholder="Partner deal · Promo code"/></Field>
-          <Field label="Maelezo"><Textarea value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Maelezo ya deal hii..." style={{minHeight:80}}/></Field>
+          <Field label="Promo Code (optional)"><Input value={form.promoCode} onChange={e=>setForm(f=>({...f,promoCode:e.target.value}))} placeholder="STEA60"/></Field>
 
-          {/* Referral toggle */}
-          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14, fontWeight:700 }}>
-              <input type="checkbox" checked={form.ref} onChange={e=>setForm(f=>({...f,ref:e.target.checked}))} style={{ width:18, height:18, accentColor:G }}/>
-              Referral link tu (hakuna promo code)
-            </label>
-          </div>
-
-          {!form.ref && <>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
-              <Field label="Bei ya zamani"><Input value={form.oldP} onChange={e=>setForm(f=>({...f,oldP:e.target.value}))} placeholder="$15/mo"/></Field>
-              <Field label="Bei mpya"><Input value={form.newP} onChange={e=>setForm(f=>({...f,newP:e.target.value}))} placeholder="$6/mo"/></Field>
-              <Field label="Save text"><Input value={form.save} onChange={e=>setForm(f=>({...f,save:e.target.value}))} placeholder="Save 60%"/></Field>
-            </div>
-            <Field label="Promo Code (optional)"><Input value={form.code} onChange={e=>setForm(f=>({...f,code:e.target.value}))} placeholder="STEA60"/></Field>
-          </>}
-
-          <Field label="Background Gradient">
-            <Input value={form.bg} onChange={e=>setForm(f=>({...f,bg:e.target.value}))} placeholder="linear-gradient(135deg,#00c4cc,#7d2ae8)"/>
+          <Field label="Background Class (Tailwind)">
+            <Input value={form.bgClass} onChange={e=>setForm(f=>({...f,bgClass:e.target.value}))} placeholder="bg-gradient-to-br from-[#00c4cc] to-[#7d2ae8]"/>
           </Field>
 
           <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
@@ -569,16 +543,13 @@ function DealsManager() {
       <div style={{ display:"grid", gap:12 }}>
         {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna deals bado. Ongeza ya kwanza! 👆</div>}
         {docs.map(item=>(
-          <div key={item.id} style={{ borderRadius:16, border:`1px solid ${item.active?"rgba(255,255,255,.07)":"rgba(239,68,68,.2)"}`, background:item.active?"#1a1d2e":"rgba(239,68,68,.05)", padding:"14px 18px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+          <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"14px 18px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
             <div style={{ fontSize:28 }}>{item.icon}</div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontWeight:800, fontSize:15 }}>{item.name}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.domain} · {item.code?"Code: "+item.code:"Referral"}</div>
+              <div style={{ fontWeight:800, fontSize:15 }}>{item.title}</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.category} · {item.promoCode?"Code: "+item.promoCode:"Link"}</div>
             </div>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={()=>toggle(item)} style={{ border:`1px solid ${item.active?"rgba(0,196,140,.3)":"rgba(239,68,68,.3)"}`, borderRadius:10, padding:"6px 12px", background:item.active?"rgba(0,196,140,.1)":"rgba(239,68,68,.1)", color:item.active?"#67f0c1":"#fca5a5", cursor:"pointer", fontWeight:700, fontSize:12 }}>
-                {item.active?"✅ Live":"⏸ Paused"}
-              </button>
               <Btn onClick={()=>{setEditing(item.id);setForm({...item});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
               <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
             </div>
@@ -594,7 +565,7 @@ function DealsManager() {
 // ══════════════════════════════════════════════════════
 function CoursesManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ emoji:"💻", title:"", desc:"", free:true, price:"Bure · Start now", cta:"Anza Sasa →", lessons:"", whatsapp:"https://wa.me/8619715852043", accent:"" });
+  const [form, setForm] = useState({ emoji:"💻", title:"", description:"", type:"free", price:"Bure", lessons:"" });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast,   setToast]   = useState(null);
@@ -621,7 +592,7 @@ function CoursesManager() {
       const data = { ...form, lessons: form.lessons.split("\n").map(l=>l.trim()).filter(Boolean), createdAt: serverTimestamp() };
       if (editing) { await updateDoc(doc(db,"courses",editing), {...data,createdAt:undefined}); toast_("Imesahihishwa!"); }
       else          { await addDoc(collection(db,"courses"), data); toast_("Kozi imewekwa live!"); }
-      setForm({ emoji:"💻", title:"", desc:"", free:true, price:"Bure · Start now", cta:"Anza Sasa →", lessons:"", whatsapp:"https://wa.me/8619715852043", accent:"" });
+      setForm({ emoji:"💻", title:"", description:"", type:"free", price:"Bure", lessons:"" });
       setEditing(null); loadDocs();
     } catch(e) { toast_(e.message,"error"); }
     setLoading(false);
@@ -657,23 +628,18 @@ function CoursesManager() {
             <Field label="Emoji"><Input value={form.emoji} onChange={e=>setForm(f=>({...f,emoji:e.target.value}))} placeholder="💻"/></Field>
             <Field label="Title *"><Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Web Development"/></Field>
           </div>
-          <Field label="Maelezo"><Textarea value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Maelezo ya kozi..." style={{minHeight:80}}/></Field>
+          <Field label="Maelezo"><Textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Maelezo ya kozi..." style={{minHeight:80}}/></Field>
 
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14, fontWeight:700 }}>
-              <input type="checkbox" checked={form.free} onChange={e=>setForm(f=>({...f,free:e.target.checked,price:e.target.checked?"Bure · Start now":"TZS 5,000/mwezi · M-Pesa"}))} style={{ width:18, height:18, accentColor:G }}/>
+              <input type="checkbox" checked={form.type === 'free'} onChange={e=>setForm(f=>({...f,type:e.target.checked?'free':'paid',price:e.target.checked?"Bure":"TZS 5,000/mwezi"}))} style={{ width:18, height:18, accentColor:G }}/>
               Kozi ya bure
             </label>
           </div>
 
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <Field label="Price text"><Input value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="TZS 5,000/mwezi · M-Pesa"/></Field>
-            <Field label="CTA Button text"><Input value={form.cta} onChange={e=>setForm(f=>({...f,cta:e.target.value}))} placeholder="Jiunge Leo"/></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:16 }}>
+            <Field label="Price text"><Input value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="TZS 5,000/mwezi"/></Field>
           </div>
-
-          <Field label="WhatsApp Link (mtu akibonyeza CTA)">
-            <Input value={form.whatsapp} onChange={e=>setForm(f=>({...f,whatsapp:e.target.value}))} placeholder="https://wa.me/8619715852043?text=Nataka+kujiunga+na+kozi..."/>
-          </Field>
 
           <Field label="Lessons (kila lesson kwenye line mpya)">
             <Textarea value={form.lessons} onChange={e=>setForm(f=>({...f,lessons:e.target.value}))} placeholder={"HTML + CSS foundation\nResponsive layouts\nGitHub Pages deployment"} style={{minHeight:120}}/>
@@ -690,7 +656,7 @@ function CoursesManager() {
             <div style={{ fontSize:32 }}>{item.emoji}</div>
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:2 }}>{item.title}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.free?"🆓 Bure":"⭐ Paid"} · {item.price} · {(item.lessons||[]).length} lessons</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.type === 'free'?"🆓 Bure":"⭐ Paid"} · {item.price} · {(item.lessons||[]).length} lessons</div>
             </div>
             <div style={{ display:"flex", gap:8 }}>
               <Btn onClick={()=>{setEditing(item.id);setForm({...item,lessons:(item.lessons||[]).join("\n")});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
@@ -903,6 +869,160 @@ function WebsitesManager() {
 }
 
 // ══════════════════════════════════════════════════════
+// SETTINGS MANAGER
+// ══════════════════════════════════════════════════════
+function SettingsManager() {
+  const [form, setForm] = useState({ faviconUrl: "" });
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  const db = getFirebaseDb();
+
+  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!db) return;
+      try {
+        const snap = await getDocs(query(collection(db, "settings")));
+        if (!snap.empty) {
+          const data = snap.docs[0].data();
+          setForm({ faviconUrl: data.faviconUrl || "" });
+        }
+      } catch (err) {
+        console.error("Error loading settings:", err);
+      }
+    };
+    loadSettings();
+  }, [db]);
+
+  const save = async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, "settings")));
+      if (snap.empty) {
+        await addDoc(collection(db, "settings"), { ...form, createdAt: serverTimestamp() });
+      } else {
+        await updateDoc(doc(db, "settings", snap.docs[0].id), { ...form, updatedAt: serverTimestamp() });
+      }
+      toast_("Settings saved successfully!");
+    } catch (e) {
+      toast_(e.message, "error");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+      <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", background: "#141823", padding: 24, marginBottom: 28 }}>
+        <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, margin: "0 0 20px" }}>⚙️ Settings</h3>
+        <div style={{ display: "grid", gap: 16 }}>
+          <ImageUpload value={form.faviconUrl} onChange={v => setForm(f => ({ ...f, faviconUrl: v }))} label="Favicon Image URL" />
+          <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : "💾 Hifadhi Settings"}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// CHATS MANAGER
+// ══════════════════════════════════════════════════════
+function ChatsManager() {
+  const [chats, setChats] = useState([]);
+  const [selectedChat, setSelectedChat] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [reply, setReply] = useState("");
+  const db = getFirebaseDb();
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    if (!db) return;
+    const q = query(collection(db, "chats"), orderBy("lastUpdated", "desc"));
+    const unsub = onSnapshot(q, snap => {
+      setChats(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [db]);
+
+  useEffect(() => {
+    if (!db || !selectedChat) return;
+    const q = query(collection(db, `chats/${selectedChat}/messages`), orderBy("timestamp", "asc"));
+    const unsub = onSnapshot(q, snap => {
+      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    });
+    // Mark as read
+    updateDoc(doc(db, "chats", selectedChat), { unreadCount: 0 }).catch(console.error);
+    return () => unsub();
+  }, [db, selectedChat]);
+
+  const sendReply = async (e) => {
+    e.preventDefault();
+    if (!reply.trim() || !selectedChat) return;
+    await addDoc(collection(db, `chats/${selectedChat}/messages`), {
+      text: reply,
+      sender: "admin",
+      timestamp: serverTimestamp()
+    });
+    await updateDoc(doc(db, "chats", selectedChat), {
+      lastMessage: reply,
+      lastUpdated: serverTimestamp()
+    });
+    setReply("");
+  };
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 24, height: "calc(100vh - 140px)" }}>
+      {/* Chat List */}
+      <div style={{ background: "#141823", borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", overflowY: "auto", padding: 16 }}>
+        <h3 style={{ margin: "0 0 16px", fontSize: 16, color: "rgba(255,255,255,.5)" }}>Recent Chats</h3>
+        <div style={{ display: "grid", gap: 8 }}>
+          {chats.map(c => (
+            <div key={c.id} onClick={() => setSelectedChat(c.id)} style={{ padding: 12, borderRadius: 12, background: selectedChat === c.id ? "rgba(245,166,35,.1)" : "rgba(255,255,255,.03)", border: `1px solid ${selectedChat === c.id ? "#F5A623" : "transparent"}`, cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <strong style={{ fontSize: 14, color: selectedChat === c.id ? "#F5A623" : "#fff" }}>{c.userName}</strong>
+                {c.unreadCount > 0 && <span style={{ background: "#ef4444", color: "#fff", fontSize: 10, padding: "2px 6px", borderRadius: 10 }}>{c.unreadCount}</span>}
+              </div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,.5)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.lastMessage}</div>
+            </div>
+          ))}
+          {chats.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,.3)" }}>Hakuna chats bado.</div>}
+        </div>
+      </div>
+
+      {/* Chat Area */}
+      <div style={{ background: "#141823", borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {selectedChat ? (
+          <>
+            <div style={{ padding: 16, borderBottom: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.02)" }}>
+              <strong style={{ fontSize: 16 }}>{chats.find(c => c.id === selectedChat)?.userName}</strong>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)" }}>{chats.find(c => c.id === selectedChat)?.userEmail}</div>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              {messages.map(m => (
+                <div key={m.id} style={{ maxWidth: "70%", padding: "10px 14px", borderRadius: 14, alignSelf: m.sender === "admin" ? "flex-end" : "flex-start", background: m.sender === "admin" ? "rgba(245,166,35,.2)" : "rgba(255,255,255,.05)", color: "#fff", borderBottomRightRadius: m.sender === "admin" ? 4 : 14, borderBottomLeftRadius: m.sender !== "admin" ? 4 : 14 }}>
+                  {m.text}
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+            <form onSubmit={sendReply} style={{ padding: 16, borderTop: "1px solid rgba(255,255,255,.08)", display: "flex", gap: 12 }}>
+              <Input value={reply} onChange={e => setReply(e.target.value)} placeholder="Type your reply..." style={{ flex: 1 }} />
+              <Btn type="submit" disabled={!reply.trim()}>Send</Btn>
+            </form>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,.3)" }}>
+            Select a chat to view messages
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
 // USERS MANAGER
 // ══════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════
@@ -912,7 +1032,7 @@ function PromptLabManager() {
   const [docs, setDocs] = useState([]);
   const [form, setForm] = useState({
     category:"📱 Social Media", emoji:"📸", title:"", prompt:"", tags:"",
-    guide:"", active:true,
+    guide:"", active:true, imageUrl:""
   });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -938,13 +1058,12 @@ function PromptLabManager() {
       const data = {
         ...form,
         tags: form.tags.split(",").map(t=>t.trim()).filter(Boolean),
-        guide: form.guide.split("
-").map(g=>g.trim()).filter(Boolean),
+        guide: form.guide.split("\n").map(g=>g.trim()).filter(Boolean),
         createdAt: serverTimestamp(),
       };
       if(editing){ await updateDoc(doc(db,"prompts",editing), {...data,createdAt:undefined}); toast_("Imesahihishwa!"); }
       else { await addDoc(collection(db,"prompts"), data); toast_("Prompt imewekwa live!"); }
-      setForm({ category:"📱 Social Media", emoji:"📸", title:"", prompt:"", tags:"", guide:"", active:true });
+      setForm({ category:"📱 Social Media", emoji:"📸", title:"", prompt:"", tags:"", guide:"", active:true, imageUrl:"" });
       setEditing(null); loadDocs();
     } catch(e){ toast_(e.message,"error"); }
     setLoading(false);
@@ -974,6 +1093,8 @@ function PromptLabManager() {
             </Field>
           </div>
 
+          <ImageUpload value={form.imageUrl} onChange={val=>setForm(f=>({...f,imageUrl:val}))} label="Image URL (Thumbnail)" />
+
           <Field label="Prompt (ndiyo maudhui ya kukopisha) *">
             <Textarea value={form.prompt} onChange={e=>setForm(f=>({...f,prompt:e.target.value}))} placeholder="Niandikia caption ya Instagram kwa biashara ya [AINA YA BIASHARA]..." style={{minHeight:140,fontFamily:"monospace",fontSize:13}}/>
           </Field>
@@ -983,14 +1104,14 @@ function PromptLabManager() {
           </Field>
 
           <Field label="Step-by-step Guide (kila hatua kwenye line mpya)">
-            <Textarea value={form.guide} onChange={e=>setForm(f=>({...f,guide:e.target.value}))} placeholder={"Badilisha [AINA YA BIASHARA] na biashara yako
+            <Textarea value={form.guide} onChange={e=>setForm(f=>({...f,guide:e.target.value}))} placeholder={`Badilisha [AINA YA BIASHARA] na biashara yako
 Nakili prompt → Weka kwenye ChatGPT
-Edit matokeo kulingana na brand yako"} style={{minHeight:120}}/>
+Edit matokeo kulingana na brand yako`} style={{minHeight:120}}/>
           </Field>
 
           <div style={{display:"flex",gap:10}}>
             <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
-            {editing && <Btn onClick={()=>{setEditing(null);setForm({category:"📱 Social Media",emoji:"📸",title:"",prompt:"",tags:"",guide:"",active:true});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
+            {editing && <Btn onClick={()=>{setEditing(null);setForm({category:"📱 Social Media",emoji:"📸",title:"",prompt:"",tags:"",guide:"",active:true,imageUrl:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
           </div>
         </div>
       </div>
@@ -1007,8 +1128,7 @@ Edit matokeo kulingana na brand yako"} style={{minHeight:120}}/>
               <div style={{fontSize:12,color:"rgba(255,255,255,.3)",marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:400}}>{item.prompt?.slice(0,80)}...</div>
             </div>
             <div style={{display:"flex",gap:8,flexShrink:0}}>
-              <Btn onClick={()=>{setEditing(item.id);setForm({...item,tags:(item.tags||[]).join(", "),guide:(item.guide||[]).join("
-")});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor="#F5A623" style={{padding:"8px 14px"}}>✏️</Btn>
+              <Btn onClick={()=>{setEditing(item.id);setForm({...item,tags:(item.tags||[]).join(", "),guide:(item.guide||[]).join("\n")});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor="#F5A623" style={{padding:"8px 14px"}}>✏️</Btn>
               <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
             </div>
           </div>
@@ -1156,6 +1276,8 @@ export default function AdminPanel({ user, onBack }) {
     { id:"products", icon:"🛒", label:"Duka" },
     { id:"websites", icon:"🌐", label:"Websites" },
     { id:"lab",      icon:"⚗️", label:"Prompt Lab" },
+    { id:"chats",    icon:"💬", label:"Chats" },
+    { id:"settings", icon:"⚙️", label:"Settings" },
     { id:"users",    icon:"👥", label:"Users" },
   ];
 
@@ -1242,6 +1364,8 @@ export default function AdminPanel({ user, onBack }) {
         {section==="products" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🛒 Manage <span style={{color:G}}>Duka Products</span></h2><ProductsManager/></>}
         {section==="websites" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🌐 Manage <span style={{color:G}}>Websites</span></h2><WebsitesManager/></>}
         {section==="lab"     && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>⚗️ Manage <span style={{color:G}}>Prompt Lab</span></h2><PromptLabManager/></>}
+        {section==="chats"   && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>💬 Manage <span style={{color:G}}>Chats</span></h2><ChatsManager/></>}
+        {section==="settings" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>⚙️ Manage <span style={{color:G}}>Settings</span></h2><SettingsManager/></>}
         {section==="users"   && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>👥 Manage <span style={{color:G}}>Users</span></h2><UsersManager/></>}
       </div>
 
