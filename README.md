@@ -93,7 +93,7 @@ stea-project/
 - ✅ Back to top button
 - ✅ Footer na email + WhatsApp
 
----
+-------
 
 ## 📧 Mawasiliano ya STEA
 
