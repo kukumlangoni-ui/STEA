@@ -41,30 +41,11 @@ export default function AIChat() {
   const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   useEffect(scrollToBottom, [messages]);
 
-  const getApiKey = () => {
-    return import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || window.process?.env?.API_KEY || '';
-  };
-
-  const getAiInstance = () => {
-    const key = getApiKey();
-    if (!key) return null;
-    return new GoogleGenAI({ apiKey: key });
-  };
+  const API_KEY = typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '';
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
 
   const handleSend = async () => {
     if (!input.trim()) return;
-    
-    const ai = getAiInstance();
-    if (!ai) {
-      setMessages(prev => [
-        ...prev, 
-        { role: "user", text: input }, 
-        { role: "ai", text: "⚠️ **Samahani, API Key inakosekana.**\n\nIli kutumia AI, tafadhali weka `GEMINI_API_KEY` kwenye AI Studio Settings -> Secrets." }
-      ]);
-      setInput("");
-      return;
-    }
-
     const userMsg = { role: "user", text: input };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
@@ -103,13 +84,6 @@ export default function AIChat() {
     if (!hasApiKey && window.aistudio) {
       await handleOpenKey();
     }
-    
-    const ai = getAiInstance();
-    if (!ai) {
-      alert("API Key inakosekana. Tafadhali weka GEMINI_API_KEY kwenye AI Studio Secrets, au chagua API Key kwa ajili ya Video.");
-      return;
-    }
-    
     if (!videoPrompt.trim()) return;
     setVideoLoading(true);
     setVideoUrl(null);
@@ -134,7 +108,7 @@ export default function AIChat() {
       const response = await fetch(downloadLink, {
         method: 'GET',
         headers: {
-          'x-goog-api-key': getApiKey(),
+          'x-goog-api-key': typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '',
         },
       });
       const blob = await response.blob();
@@ -165,11 +139,6 @@ export default function AIChat() {
   };
 
   const handleAudioToggle = async () => {
-    const ai = getAiInstance();
-    if (!ai) {
-      alert("API Key inakosekana. Tafadhali weka GEMINI_API_KEY kwenye AI Studio Secrets.");
-      return;
-    }
     if (isRecording) {
       sessionRef.current?.close();
       audioStreamRef.current?.getTracks().forEach(t => t.stop());

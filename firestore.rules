@@ -43,8 +43,7 @@ service cloud.firestore {
         ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
          request.auth.token.email.lower() == "swahilitechacademy@gmail.com" ||
-         request.auth.token.email.lower() == "isayamasika100@gmail.com" ||
-         request.auth.token.email.lower() == "kukumlangoni@gmail.com");
+         request.auth.token.email.lower() == "isayamasika100@gmail.com");
     }
 
 

@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 
-const ADMIN_EMAIL = "kukumlangoni@gmail.com";
+const ADMIN_EMAIL = "swahilitechacademy@gmail.com";
 
 // Helper to normalize email input (appends @gmail.com if domain is missing)
 export const normalizeEmail = (email) => {
