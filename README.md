@@ -42,7 +42,7 @@ npm run build
 ```bash
 npm install -g vercel
 vercel
-```
+``` 
 
 ### Option B — GitHub + Vercel (Bora zaidi)
 1. Push project yako kwenye GitHub repo mpya
