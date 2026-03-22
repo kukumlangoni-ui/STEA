@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Cropper from "react-easy-crop";
 import {
   getFirebaseDb, collection, addDoc, updateDoc, deleteDoc,
-  getDocs, doc, serverTimestamp, query, orderBy,
+  doc, serverTimestamp, query, orderBy, onSnapshot,
 } from "../firebase.js";
 import { timeAgo, fmtViews } from "../hooks/useFirestore.js";
 
@@ -28,7 +29,7 @@ const Field = ({ label, children }) => (
 );
 
 const Input = (props) => (
-  <input {...props} style={{ height:46, borderRadius:12, border:"1px solid rgba(255,255,255,.1)",
+  <input {...props} value={props.value || ""} style={{ height:46, borderRadius:12, border:"1px solid rgba(255,255,255,.1)",
     background:"rgba(255,255,255,.05)", color:"#fff", padding:"0 14px", outline:"none",
     fontFamily:"inherit", fontSize:14, width:"100%", ...props.style }}
     onFocus={e=>e.target.style.borderColor=G}
@@ -36,7 +37,7 @@ const Input = (props) => (
 );
 
 const Textarea = (props) => (
-  <textarea {...props} style={{ borderRadius:12, border:"1px solid rgba(255,255,255,.1)",
+  <textarea {...props} value={props.value || ""} style={{ borderRadius:12, border:"1px solid rgba(255,255,255,.1)",
     background:"rgba(255,255,255,.05)", color:"#fff", padding:"12px 14px", outline:"none",
     fontFamily:"inherit", fontSize:14, width:"100%", resize:"vertical", minHeight:100,
     ...props.style }}
@@ -51,52 +52,6 @@ const Select = ({ children, ...props }) => (
     {children}
   </select>
 );
-
-// ── Image Upload Component ────────────────────────────
-function ImageUpload({ value, onChange, label="Thumbnail Image" }) {
-  const [preview, setPreview] = useState(value||"");
-  const [uploading, setUploading] = useState(false);
-  const inputRef = React.useRef(null);
-
-  const handleFile = (e) => {
-    const file = e.target.files[0];
-    if(!file) return;
-    if(file.size > 5 * 1024 * 1024) { alert("Picha lazima iwe chini ya 5MB"); return; }
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target.result;
-      setPreview(dataUrl);
-      onChange(dataUrl);
-      setUploading(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const clear = () => { setPreview(""); onChange(""); if(inputRef.current) inputRef.current.value=""; };
-
-  return (
-    <Field label={label}>
-      <div style={{display:"grid",gap:10}}>
-        {preview ? (
-          <div style={{position:"relative",borderRadius:14,overflow:"hidden",border:"1px solid rgba(255,255,255,.1)"}}>
-            <img src={preview} alt="preview" style={{width:"100%",height:180,objectFit:"cover",display:"block"}}/>
-            <button onClick={clear} style={{position:"absolute",top:8,right:8,width:32,height:32,borderRadius:8,border:"none",background:"rgba(239,68,68,.85)",color:"#fff",cursor:"pointer",fontWeight:800,fontSize:14}}>✕</button>
-          </div>
-        ) : (
-          <div onClick={()=>inputRef.current?.click()} style={{height:120,borderRadius:14,border:"2px dashed rgba(255,255,255,.15)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer",background:"rgba(255,255,255,.03)",transition:"border-color .2s"}} onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(245,166,35,.4)"} onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(255,255,255,.15)"}>
-            <span style={{fontSize:28}}>{uploading?"⏳":"🖼️"}</span>
-            <span style={{fontSize:13,color:"rgba(255,255,255,.45)",fontWeight:700}}>{uploading?"Inapakia...":"Click kupakia picha (max 5MB)"}</span>
-          </div>
-        )}
-        <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-        <div style={{textAlign:"center",fontSize:12,color:"rgba(255,255,255,.3)"}}>au weka URL moja kwa moja:</div>
-        <input value={preview.startsWith("data:") ? "" : preview} onChange={e=>{setPreview(e.target.value);onChange(e.target.value);}} placeholder="https://example.com/picha.jpg" style={{height:42,borderRadius:11,border:"1px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.05)",color:"#fff",padding:"0 14px",outline:"none",fontFamily:"inherit",fontSize:13}} onFocus={e=>e.target.style.borderColor="#F5A623"} onBlur={e=>e.target.style.borderColor="rgba(255,255,255,.1)"}/>
-      </div>
-    </Field>
-  );
-}
-
 
 function Toast({ msg, type }) {
   if (!msg) return null;
@@ -145,12 +100,163 @@ function ConfirmDialog({ msg, onConfirm, onCancel }) {
   );
 }
 
+// ── Image Cropper Modal ───────────────────────────────
+const createImage = (url) =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(image));
+    image.addEventListener("error", (error) => reject(error));
+    image.setAttribute("crossOrigin", "anonymous");
+    image.src = url;
+  });
+
+const getCroppedImg = async (imageSrc, pixelCrop, maxWidth = 800, maxHeight = 800) => {
+  const image = await createImage(imageSrc);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) return null;
+
+  let targetWidth = pixelCrop.width;
+  let targetHeight = pixelCrop.height;
+
+  if (targetWidth > maxWidth) {
+    const ratio = maxWidth / targetWidth;
+    targetWidth = maxWidth;
+    targetHeight = targetHeight * ratio;
+  }
+  if (targetHeight > maxHeight) {
+    const ratio = maxHeight / targetHeight;
+    targetHeight = maxHeight;
+    targetWidth = targetWidth * ratio;
+  }
+
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  ctx.drawImage(
+    image,
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
+
+  // Return as base64 (compressed to keep it under 1MB)
+  return canvas.toDataURL("image/jpeg", 0.7);
+};
+
+function CropperModal({ image, onCrop, onCancel, aspect = 16 / 9, maxWidth = 800, maxHeight = 800 }) {
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const onCropComplete = useCallback((_, pixels) => {
+    setCroppedAreaPixels(pixels);
+  }, []);
+
+  const handleDone = async () => {
+    setLoading(true);
+    try {
+      const croppedImage = await getCroppedImg(image, croppedAreaPixels, maxWidth, maxHeight);
+      onCrop(croppedImage);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgba(4,5,9,.95)", display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "relative", flex: 1, background: "#000" }}>
+        <Cropper
+          image={image}
+          crop={crop}
+          zoom={zoom}
+          aspect={aspect}
+          onCropChange={setCrop}
+          onCropComplete={onCropComplete}
+          onZoomChange={setZoom}
+        />
+      </div>
+      <div style={{ padding: 20, background: "#141823", display: "flex", gap: 12, justifyContent: "center", alignItems: "center" }}>
+        <div style={{ flex: 1, maxWidth: 300 }}>
+          <label style={{ fontSize: 12, color: "rgba(255,255,255,.5)", display: "block", marginBottom: 8 }}>Zoom: {zoom.toFixed(1)}x</label>
+          <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={e => setZoom(parseFloat(e.target.value))} style={{ width: "100%", accentColor: G }} />
+        </div>
+        <div style={{ display: "flex", gap: 12 }}>
+          <Btn onClick={onCancel} color="rgba(255,255,255,.1)" textColor="#fff">Ghairi</Btn>
+          <Btn onClick={handleDone} disabled={loading}>{loading ? "Inakata..." : "✅ Maliza & Tumia"}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImageUploadField({ label, value, onChange, aspect = 16 / 9, maxWidth = 800, maxHeight = 800 }) {
+  const [tempImg, setTempImg] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const onFileChange = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setLoading(true);
+      const reader = new FileReader();
+      reader.addEventListener("load", () => {
+        setTempImg(reader.result);
+        setLoading(false);
+      });
+      reader.readAsDataURL(e.target.files[0]);
+    }
+  };
+
+  const isDataUrl = value && value.startsWith("data:image/");
+
+  return (
+    <Field label={label}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+        {isDataUrl ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 12, padding: "0 14px", height: 46 }}>
+            <span style={{ color: "#00C48C", fontSize: 14, flex: 1 }}>✅ Image Uploaded</span>
+            <button onClick={() => onChange("")} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,.5)", cursor: "pointer", fontSize: 16 }}>✕</button>
+          </div>
+        ) : (
+          <Input value={value || ""} onChange={e => onChange(e.target.value)} placeholder="Weka link ya picha (sio website) au upload ➔" />
+        )}
+        <Btn onClick={() => fileInputRef.current.click()} color="rgba(255,255,255,.08)" textColor="#fff" style={{ padding: "0 14px" }} disabled={loading}>
+          {loading ? "⏳..." : "📸 Crop & Upload"}
+        </Btn>
+        <input type="file" ref={fileInputRef} onChange={onFileChange} accept="image/*" style={{ display: "none" }} />
+      </div>
+      {tempImg && (
+        <CropperModal
+          image={tempImg}
+          aspect={aspect}
+          maxWidth={maxWidth}
+          maxHeight={maxHeight}
+          onCancel={() => setTempImg(null)}
+          onCrop={(cropped) => {
+            onChange(cropped);
+            setTempImg(null);
+          }}
+        />
+      )}
+    </Field>
+  );
+}
+
 // ══════════════════════════════════════════════════════
 // TIPS MANAGER
 // ══════════════════════════════════════════════════════
 function TipsManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ type:"article", badge:"Android", title:"", summary:"", content:"", thumb:"📱", tags:"", readTime:"5 min", platform:"youtube", embedUrl:"", channel:"", channelImg:"🎙️", duration:"" });
+  const [form, setForm] = useState({ type:"article", badge:"Android", title:"", summary:"", content:"", imageUrl:"", tags:"", readTime:"5 min", platform:"youtube", embedUrl:"", channel:"", channelImg:"🎙️", duration:"" });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast,   setToast]   = useState(null);
@@ -160,32 +266,38 @@ function TipsManager() {
   const db = getFirebaseDb();
   const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
-  const loadDocs = useCallback(async () => {
-    if (!db) return;
-    const snap = await getDocs(query(collection(db,"tips"), orderBy("createdAt","desc")));
-    setDocs(snap.docs.map(d=>({id:d.id,...d.data()})));
-  }, [db]);
-
   useEffect(() => {
-    const t = setTimeout(loadDocs, 0);
-    return () => clearTimeout(t);
-  }, [loadDocs]);
+    if (!db) return;
+    const q = query(collection(db, "tips"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Error loading tips:", err);
+    });
+    return () => unsub();
+  }, [db]);
 
   const save = async () => {
     if (!form.title.trim()) { toast_("Weka title kwanza","error"); return; }
     setLoading(true);
     try {
       const data = { ...form, tags: form.tags.split(",").map(t=>t.trim()).filter(Boolean), views:0, createdAt: serverTimestamp() };
-      if (editing) { await updateDoc(doc(db,"tips",editing), {...data, createdAt:undefined}); toast_("Imesahihishwa!"); }
+      if (editing) {
+        const updateData = { ...data };
+        delete updateData.id;
+        delete updateData.createdAt;
+        await updateDoc(doc(db,"tips",editing), updateData);
+        toast_("Imesahihishwa!");
+      }
       else          { await addDoc(collection(db,"tips"), data); toast_("Imewekwa live!"); }
-      setForm({ type:"article", badge:"Android", title:"", summary:"", content:"", thumb:"📱", tags:"", readTime:"5 min", platform:"youtube", embedUrl:"", channel:"", channelImg:"🎙️", duration:"" });
-      setEditing(null); loadDocs();
+      setForm({ type:"article", badge:"Android", title:"", summary:"", content:"", imageUrl:"", tags:"", readTime:"5 min", platform:"youtube", embedUrl:"", channel:"", channelImg:"🎙️", duration:"" });
+      setEditing(null);
     } catch(e) { toast_(e.message,"error"); }
     setLoading(false);
   };
 
   const del = async (id) => {
-    setConfirm({ msg:"Una uhakika unataka kufuta post hii? Haiwezi kurejeshwa.", onConfirm: async()=>{ await deleteDoc(doc(db,"tips",id)); setConfirm(null); loadDocs(); toast_("Imefutwa"); }, onCancel:()=>setConfirm(null) });
+    setConfirm({ msg:"Una uhakika unataka kufuta post hii? Haiwezi kurejeshwa.", onConfirm: async()=>{ await deleteDoc(doc(db,"tips",id)); setConfirm(null); toast_("Imefutwa"); }, onCancel:()=>setConfirm(null) });
   };
 
   const edit = (item) => { setEditing(item.id); setForm({...item, tags:(item.tags||[]).join(", ")}); setTab(item.type||"article"); window.scrollTo({top:0,behavior:"smooth"}); };
@@ -213,15 +325,13 @@ function TipsManager() {
         </div>
 
         <div style={{ display:"grid", gap:16 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:16 }}>
             <Field label="Badge (Android / AI / PC etc)">
               <Input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="Android"/>
             </Field>
-            <Field label="Emoji / Thumb">
-              <Input value={form.thumb} onChange={e=>setForm(f=>({...f,thumb:e.target.value}))} placeholder="📱"/>
-            </Field>
           </div>
-          <ImageUpload value={form.thumbImg||""} onChange={v=>setForm(f=>({...f,thumbImg:v}))} label="Thumbnail Image (optional)"/>
+
+          <ImageUploadField label="Thumbnail Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} aspect={16/9} maxWidth={800} maxHeight={450} />
 
           <Field label="Title *">
             <Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Andika title ya post hapa..."/>
@@ -272,7 +382,7 @@ function TipsManager() {
 
           <div style={{ display:"flex", gap:10 }}>
             <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi Mabadiliko":"🚀 Weka Live"}</Btn>
-            {editing && <Btn onClick={()=>{setEditing(null);setForm({type:"article",badge:"Android",title:"",summary:"",content:"",thumb:"📱",tags:"",readTime:"5 min",platform:"youtube",embedUrl:"",channel:"",channelImg:"🎙️",duration:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
+            {editing && <Btn onClick={()=>{setEditing(null);setForm({type:"article",badge:"Android",title:"",summary:"",content:"",imageUrl:"",tags:"",readTime:"5 min",platform:"youtube",embedUrl:"",channel:"",channelImg:"🎙️",duration:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
           </div>
         </div>
       </div>
@@ -282,7 +392,9 @@ function TipsManager() {
         {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)", fontSize:15 }}>Hakuna posts bado. Ongeza ya kwanza! 👆</div>}
         {docs.map(item=>(
           <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"16px 20px", display:"flex", gap:14, alignItems:"center", flexWrap:"wrap" }}>
-            <div style={{ fontSize:32, flexShrink:0 }}>{item.thumb||"📝"}</div>
+            <div style={{ width:48, height:48, borderRadius:10, overflow:"hidden", display:"grid", placeItems:"center", background:"rgba(255,255,255,.05)", flexShrink:0 }}>
+              {item.imageUrl && <img src={item.imageUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" />}
+            </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, flexWrap:"wrap" }}>
                 <span style={{ fontSize:11, fontWeight:800, padding:"3px 8px", borderRadius:6, background:"rgba(245,166,35,.15)", color:G }}>{item.badge}</span>
@@ -308,7 +420,7 @@ function TipsManager() {
 // ══════════════════════════════════════════════════════
 function UpdatesManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ type:"article", badge:"AI", category:"Artificial Intelligence", title:"", summary:"", content:"", thumb:"🧠", source:"", platform:"youtube", embedUrl:"", channel:"", channelImg:"🔥", duration:"" });
+  const [form, setForm] = useState({ type:"article", badge:"AI", category:"Artificial Intelligence", title:"", summary:"", content:"", imageUrl:"", source:"", platform:"youtube", embedUrl:"", channel:"", channelImg:"🔥", duration:"" });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast,   setToast]   = useState(null);
@@ -318,32 +430,38 @@ function UpdatesManager() {
   const db = getFirebaseDb();
   const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
-  const loadDocs = useCallback(async () => {
-    if (!db) return;
-    const snap = await getDocs(query(collection(db,"updates"), orderBy("createdAt","desc")));
-    setDocs(snap.docs.map(d=>({id:d.id,...d.data()})));
-  }, [db]);
-
   useEffect(() => {
-    const t = setTimeout(loadDocs, 0);
-    return () => clearTimeout(t);
-  }, [loadDocs]);
+    if (!db) return;
+    const q = query(collection(db, "updates"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Error loading updates:", err);
+    });
+    return () => unsub();
+  }, [db]);
 
   const save = async () => {
     if (!form.title.trim()) { toast_("Weka title kwanza","error"); return; }
     setLoading(true);
     try {
       const data = { ...form, views:0, createdAt: serverTimestamp() };
-      if (editing) { await updateDoc(doc(db,"updates",editing), {...data,createdAt:undefined}); toast_("Imesahihishwa!"); }
+      if (editing) {
+        const updateData = { ...data };
+        delete updateData.id;
+        delete updateData.createdAt;
+        await updateDoc(doc(db,"updates",editing), updateData);
+        toast_("Imesahihishwa!");
+      }
       else          { await addDoc(collection(db,"updates"), data); toast_("Imewekwa live!"); }
-      setForm({ type:"article", badge:"AI", category:"Artificial Intelligence", title:"", summary:"", content:"", thumb:"🧠", source:"", platform:"youtube", embedUrl:"", channel:"", channelImg:"🔥", duration:"" });
-      setEditing(null); loadDocs();
+      setForm({ type:"article", badge:"AI", category:"Artificial Intelligence", title:"", summary:"", content:"", imageUrl:"", source:"", platform:"youtube", embedUrl:"", channel:"", channelImg:"🔥", duration:"" });
+      setEditing(null);
     } catch(e) { toast_(e.message,"error"); }
     setLoading(false);
   };
 
   const del = async (id) => {
-    setConfirm({ msg:"Una uhakika unataka kufuta habari hii?", onConfirm:async()=>{ await deleteDoc(doc(db,"updates",id)); setConfirm(null); loadDocs(); toast_("Imefutwa"); }, onCancel:()=>setConfirm(null) });
+    setConfirm({ msg:"Una uhakika unataka kufuta habari hii?", onConfirm:async()=>{ await deleteDoc(doc(db,"updates",id)); setConfirm(null); toast_("Imefutwa"); }, onCancel:()=>setConfirm(null) });
   };
 
   const edit = (item) => { setEditing(item.id); setForm({...item}); setTab(item.type||"article"); window.scrollTo({top:0,behavior:"smooth"}); };
@@ -368,18 +486,16 @@ function UpdatesManager() {
         </div>
 
         <div style={{ display:"grid", gap:16 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
             <Field label="Badge (AI / Android / Africa etc)">
               <Input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="AI"/>
             </Field>
             <Field label="Category">
               <Input value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} placeholder="Artificial Intelligence"/>
             </Field>
-            <Field label="Thumb Emoji (au weka URL chini)">
-              <Input value={form.thumb} onChange={e=>setForm(f=>({...f,thumb:e.target.value}))} placeholder="🧠"/>
-            </Field>
           </div>
-          <ImageUpload value={form.thumbImg||""} onChange={v=>setForm(f=>({...f,thumbImg:v}))} label="Thumbnail Image (optional)"/>
+
+          <ImageUploadField label="Thumbnail Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} maxWidth={800} maxHeight={450} />
 
           <Field label="Title *">
             <Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Habari title..."/>
@@ -424,7 +540,7 @@ function UpdatesManager() {
 
           <div style={{ display:"flex", gap:10 }}>
             <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
-            {editing && <Btn onClick={()=>{setEditing(null);setForm({type:"article",badge:"AI",category:"Artificial Intelligence",title:"",summary:"",content:"",thumb:"🧠",source:"",platform:"youtube",embedUrl:"",channel:"",channelImg:"🔥",duration:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
+            {editing && <Btn onClick={()=>{setEditing(null);setForm({type:"article",badge:"AI",category:"Artificial Intelligence",title:"",summary:"",content:"",imageUrl:"",source:"",platform:"youtube",embedUrl:"",channel:"",channelImg:"🔥",duration:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
           </div>
         </div>
       </div>
@@ -433,7 +549,9 @@ function UpdatesManager() {
         {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)", fontSize:15 }}>Hakuna habari bado. Ongeza ya kwanza! 👆</div>}
         {docs.map(item=>(
           <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"16px 20px", display:"flex", gap:14, alignItems:"center", flexWrap:"wrap" }}>
-            <div style={{ fontSize:30, flexShrink:0 }}>{item.thumb}</div>
+            <div style={{ width:48, height:48, borderRadius:10, overflow:"hidden", display:"grid", placeItems:"center", background:"rgba(255,255,255,.05)", flexShrink:0 }}>
+              {item.imageUrl && <img src={item.imageUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" />}
+            </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:"flex", gap:8, marginBottom:4, flexWrap:"wrap" }}>
                 <span style={{ fontSize:11, fontWeight:800, padding:"3px 8px", borderRadius:6, background:"rgba(245,166,35,.15)", color:G }}>{item.badge}</span>
@@ -458,7 +576,7 @@ function UpdatesManager() {
 // ══════════════════════════════════════════════════════
 function DealsManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ title:"", oldPrice:"", newPrice:"", savePercent:"", promoCode:"", link:"", category:"", icon:"🎨", bgClass:"bg-gradient-to-br from-[#00c4cc] to-[#7d2ae8]" });
+  const [form, setForm] = useState({ imageUrl:"", name:"", domain:"", url:"", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", badge:"", bt:"gold", meta:"", desc:"", oldP:"", newP:"", save:"", code:"", ref:false, active:true });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast,   setToast]   = useState(null);
@@ -467,26 +585,32 @@ function DealsManager() {
   const db = getFirebaseDb();
   const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
-  const loadDocs = useCallback(async () => {
+  useEffect(() => {
     if (!db) return;
-    const snap = await getDocs(query(collection(db,"deals"), orderBy("createdAt","desc")));
-    setDocs(snap.docs.map(d=>({id:d.id,...d.data()})));
+    const q = query(collection(db, "deals"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Error loading deals:", err);
+    });
+    return () => unsub();
   }, [db]);
 
-  useEffect(() => {
-    const t = setTimeout(loadDocs, 0);
-    return () => clearTimeout(t);
-  }, [loadDocs]);
-
   const save = async () => {
-    if (!form.title.trim()||!form.link.trim()) { toast_("Weka jina na Link kwanza","error"); return; }
+    if (!form.name.trim()||!form.url.trim()) { toast_("Weka jina na URL kwanza","error"); return; }
     setLoading(true);
     try {
       const data = { ...form, createdAt: serverTimestamp() };
-      if (editing) { await updateDoc(doc(db,"deals",editing), {...data,createdAt:undefined}); toast_("Imesahihishwa!"); }
+      if (editing) {
+        const updateData = { ...data };
+        delete updateData.id;
+        delete updateData.createdAt;
+        await updateDoc(doc(db,"deals",editing), updateData);
+        toast_("Imesahihishwa!");
+      }
       else          { await addDoc(collection(db,"deals"), data); toast_("Deal imewekwa live!"); }
-      setForm({ title:"", oldPrice:"", newPrice:"", savePercent:"", promoCode:"", link:"", category:"", icon:"🎨", bgClass:"bg-gradient-to-br from-[#00c4cc] to-[#7d2ae8]" });
-      setEditing(null); loadDocs();
+      setForm({ imageUrl:"", name:"", domain:"", url:"", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", badge:"", bt:"gold", meta:"", desc:"", oldP:"", newP:"", save:"", code:"", ref:false, active:true });
+      setEditing(null);
     } catch(e) { toast_(e.message,"error"); }
     setLoading(false);
   };
@@ -498,7 +622,6 @@ function DealsManager() {
         try {
           await deleteDoc(doc(db, "deals", id));
           setConfirm(null);
-          loadDocs();
           toast_("Deal imefutwa");
         } catch (e) {
           toast_(e.message, "error");
@@ -506,6 +629,10 @@ function DealsManager() {
       },
       onCancel: () => setConfirm(null)
     });
+  };
+
+  const toggle = async (item) => {
+    await updateDoc(doc(db,"deals",item.id), { active:!item.active });
   };
 
   return (
@@ -518,22 +645,43 @@ function DealsManager() {
           {editing?"✏️ Hariri Deal":"➕ Ongeza Deal Mpya"}
         </h3>
         <div style={{ display:"grid", gap:16 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"60px 1fr 1fr", gap:16 }}>
-            <Field label="Icon"><Input value={form.icon} onChange={e=>setForm(f=>({...f,icon:e.target.value}))} placeholder="🎨"/></Field>
-            <Field label="Jina la Deal *"><Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Canva Pro"/></Field>
-            <Field label="Category"><Input value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} placeholder="Design"/></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+            <Field label="Jina la Deal *"><Input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Canva Pro"/></Field>
+            <Field label="Domain"><Input value={form.domain} onChange={e=>setForm(f=>({...f,domain:e.target.value}))} placeholder="canva.com"/></Field>
           </div>
-          <Field label="Link (URL) *"><Input value={form.link} onChange={e=>setForm(f=>({...f,link:e.target.value}))} placeholder="https://canva.com/affiliates/..."/></Field>
-          
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
-            <Field label="Bei ya zamani"><Input value={form.oldPrice} onChange={e=>setForm(f=>({...f,oldPrice:e.target.value}))} placeholder="$15/mo"/></Field>
-            <Field label="Bei mpya"><Input value={form.newPrice} onChange={e=>setForm(f=>({...f,newPrice:e.target.value}))} placeholder="$6/mo"/></Field>
-            <Field label="Save Percent"><Input value={form.savePercent} onChange={e=>setForm(f=>({...f,savePercent:e.target.value}))} placeholder="60%"/></Field>
+          <ImageUploadField label="Real Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} aspect={16/9} maxWidth={800} maxHeight={450} />
+          <Field label="URL ya Affiliate Link *"><Input value={form.url} onChange={e=>setForm(f=>({...f,url:e.target.value}))} placeholder="https://canva.com/affiliates/..."/></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+            <Field label="Badge Text"><Input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="-60%"/></Field>
+            <Field label="Badge Color">
+              <Select value={form.bt} onChange={e=>setForm(f=>({...f,bt:e.target.value}))}>
+                <option value="gold">Gold</option><option value="blue">Blue</option>
+                <option value="red">Red</option><option value="purple">Purple</option><option value="gray">Gray</option>
+              </Select>
+            </Field>
           </div>
-          <Field label="Promo Code (optional)"><Input value={form.promoCode} onChange={e=>setForm(f=>({...f,promoCode:e.target.value}))} placeholder="STEA60"/></Field>
+          <Field label="Meta (Partner deal · Promo code)"><Input value={form.meta} onChange={e=>setForm(f=>({...f,meta:e.target.value}))} placeholder="Partner deal · Promo code"/></Field>
+          <Field label="Maelezo"><Textarea value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Maelezo ya deal hii..." style={{minHeight:80}}/></Field>
 
-          <Field label="Background Class (Tailwind)">
-            <Input value={form.bgClass} onChange={e=>setForm(f=>({...f,bgClass:e.target.value}))} placeholder="bg-gradient-to-br from-[#00c4cc] to-[#7d2ae8]"/>
+          {/* Referral toggle */}
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14, fontWeight:700 }}>
+              <input type="checkbox" checked={form.ref} onChange={e=>setForm(f=>({...f,ref:e.target.checked}))} style={{ width:18, height:18, accentColor:G }}/>
+              Referral link tu (hakuna promo code)
+            </label>
+          </div>
+
+          {!form.ref && <>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
+              <Field label="Bei ya zamani"><Input value={form.oldP} onChange={e=>setForm(f=>({...f,oldP:e.target.value}))} placeholder="$15/mo"/></Field>
+              <Field label="Bei mpya"><Input value={form.newP} onChange={e=>setForm(f=>({...f,newP:e.target.value}))} placeholder="$6/mo"/></Field>
+              <Field label="Save text"><Input value={form.save} onChange={e=>setForm(f=>({...f,save:e.target.value}))} placeholder="Save 60%"/></Field>
+            </div>
+            <Field label="Promo Code (optional)"><Input value={form.code} onChange={e=>setForm(f=>({...f,code:e.target.value}))} placeholder="STEA60"/></Field>
+          </>}
+
+          <Field label="Background Gradient">
+            <Input value={form.bg} onChange={e=>setForm(f=>({...f,bg:e.target.value}))} placeholder="linear-gradient(135deg,#00c4cc,#7d2ae8)"/>
           </Field>
 
           <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
@@ -543,13 +691,18 @@ function DealsManager() {
       <div style={{ display:"grid", gap:12 }}>
         {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna deals bado. Ongeza ya kwanza! 👆</div>}
         {docs.map(item=>(
-          <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"14px 18px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-            <div style={{ fontSize:28 }}>{item.icon}</div>
+          <div key={item.id} style={{ borderRadius:16, border:`1px solid ${item.active?"rgba(255,255,255,.07)":"rgba(239,68,68,.2)"}`, background:item.active?"#1a1d2e":"rgba(239,68,68,.05)", padding:"14px 18px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+            <div style={{ width:48, height:48, borderRadius:10, overflow:"hidden", display:"grid", placeItems:"center", background:"rgba(255,255,255,.05)" }}>
+              {item.imageUrl && <img src={item.imageUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" />}
+            </div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontWeight:800, fontSize:15 }}>{item.title}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.category} · {item.promoCode?"Code: "+item.promoCode:"Link"}</div>
+              <div style={{ fontWeight:800, fontSize:15 }}>{item.name}</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.domain} · {item.code?"Code: "+item.code:"Referral"}</div>
             </div>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <button onClick={()=>toggle(item)} style={{ border:`1px solid ${item.active?"rgba(0,196,140,.3)":"rgba(239,68,68,.3)"}`, borderRadius:10, padding:"6px 12px", background:item.active?"rgba(0,196,140,.1)":"rgba(239,68,68,.1)", color:item.active?"#67f0c1":"#fca5a5", cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                {item.active?"✅ Live":"⏸ Paused"}
+              </button>
               <Btn onClick={()=>{setEditing(item.id);setForm({...item});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
               <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
             </div>
@@ -565,7 +718,22 @@ function DealsManager() {
 // ══════════════════════════════════════════════════════
 function CoursesManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ emoji:"💻", title:"", description:"", type:"free", price:"Bure", lessons:"" });
+  const [form, setForm] = useState({ 
+    imageUrl:"", title:"", desc:"", free:true, price:"Bure · Start now", cta:"Anza Sasa →", lessons:"", whatsapp:"https://wa.me/255768260933", accent:"",
+    badge: "New", level: "Beginner", instructorName: "STEA Instructor", duration: "4 Weeks", totalLessons: "12", studentsCount: "0", rating: "5.0",
+    oldPrice: "", newPrice: "", shortPromise: "Jifunze stadi za kisasa kwa Kiswahili.",
+    whatYouWillLearn: "", whatYouWillGet: "", suitableFor: "", requirements: "",
+    language: "Kiswahili", certificateIncluded: true, supportType: "WhatsApp Group",
+    adminWhatsAppNumber: "255768260933", customWhatsAppMessageTemplate: "",
+    priceDisclaimerShort: "Bei elekezi. Thibitisha malipo kupitia STEA.",
+    priceDisclaimerFull: "Maelekezo rasmi ya kujiunga na malipo yatathibitishwa kupitia STEA pekee. Usifanye malipo nje ya mawasiliano rasmi ya STEA.",
+    testimonial1Name: "", testimonial1Text: "", testimonial1Role: "",
+    testimonial2Name: "", testimonial2Text: "", testimonial2Role: "",
+    testimonial3Name: "", testimonial3Text: "", testimonial3Role: "",
+    faq1Question: "Nitaanzaje baada ya kulipia?", faq1Answer: "Baada ya malipo kuthibitishwa, utatumiwa link ya kujiunga na darasa na kuanza masomo mara moja.",
+    faq2Question: "Nitapata support?", faq2Answer: "Ndiyo, utapata msaada wa moja kwa moja kupitia group letu la WhatsApp la wanafunzi.",
+    faq3Question: "Je, bei inaweza kubadilika?", faq3Answer: "Bei inaweza kubadilika kulingana na ofa zilizopo. Hakikisha unathibitisha bei ya sasa kabla ya kulipia."
+  });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast,   setToast]   = useState(null);
@@ -574,26 +742,67 @@ function CoursesManager() {
   const db = getFirebaseDb();
   const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
-  const loadDocs = useCallback(async () => {
-    if (!db) return;
-    const snap = await getDocs(query(collection(db,"courses"), orderBy("createdAt","desc")));
-    setDocs(snap.docs.map(d=>({id:d.id,...d.data()})));
-  }, [db]);
-
   useEffect(() => {
-    const t = setTimeout(loadDocs, 0);
-    return () => clearTimeout(t);
-  }, [loadDocs]);
+    if (!db) return;
+    const q = query(collection(db, "courses"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Error loading courses:", err);
+    });
+    return () => unsub();
+  }, [db]);
 
   const save = async () => {
     if (!form.title.trim()) { toast_("Weka title kwanza","error"); return; }
     setLoading(true);
     try {
-      const data = { ...form, lessons: form.lessons.split("\n").map(l=>l.trim()).filter(Boolean), createdAt: serverTimestamp() };
-      if (editing) { await updateDoc(doc(db,"courses",editing), {...data,createdAt:undefined}); toast_("Imesahihishwa!"); }
+      const processArray = (val) => {
+        if (typeof val === 'string') return val.split("\n").map(l=>l.trim()).filter(Boolean);
+        if (Array.isArray(val)) return val;
+        return [];
+      };
+
+      const data = { 
+        ...form, 
+        lessons: processArray(form.lessons),
+        whatYouWillLearn: processArray(form.whatYouWillLearn),
+        whatYouWillGet: processArray(form.whatYouWillGet),
+        suitableFor: processArray(form.suitableFor),
+        requirements: processArray(form.requirements),
+        createdAt: serverTimestamp() 
+      };
+
+      // Ensure no undefined values are sent to Firestore
+      Object.keys(data).forEach(key => {
+        if (data[key] === undefined) data[key] = "";
+      });
+
+      if (editing) {
+        const updateData = { ...data };
+        delete updateData.id;
+        delete updateData.createdAt;
+        await updateDoc(doc(db,"courses",editing), updateData);
+        toast_("Imesahihishwa!");
+      }
       else          { await addDoc(collection(db,"courses"), data); toast_("Kozi imewekwa live!"); }
-      setForm({ emoji:"💻", title:"", description:"", type:"free", price:"Bure", lessons:"" });
-      setEditing(null); loadDocs();
+      setForm({ 
+        imageUrl:"", title:"", desc:"", free:true, price:"Bure · Start now", cta:"Anza Sasa →", lessons:"", whatsapp:"https://wa.me/255768260933", accent:"",
+        badge: "New", level: "Beginner", instructorName: "STEA Instructor", duration: "4 Weeks", totalLessons: "12", studentsCount: "0", rating: "5.0",
+        oldPrice: "", newPrice: "", shortPromise: "Jifunze stadi za kisasa kwa Kiswahili.",
+        whatYouWillLearn: "", whatYouWillGet: "", suitableFor: "", requirements: "",
+        language: "Kiswahili", certificateIncluded: true, supportType: "WhatsApp Group",
+        adminWhatsAppNumber: "255768260933", customWhatsAppMessageTemplate: "",
+        priceDisclaimerShort: "Bei elekezi. Thibitisha malipo kupitia STEA.",
+        priceDisclaimerFull: "Maelekezo rasmi ya kujiunga na malipo yatathibitishwa kupitia STEA pekee. Usifanye malipo nje ya mawasiliano rasmi ya STEA.",
+        testimonial1Name: "", testimonial1Text: "", testimonial1Role: "",
+        testimonial2Name: "", testimonial2Text: "", testimonial2Role: "",
+        testimonial3Name: "", testimonial3Text: "", testimonial3Role: "",
+        faq1Question: "Nitaanzaje baada ya kulipia?", faq1Answer: "Baada ya malipo kuthibitishwa, utatumiwa link ya kujiunga na darasa na kuanza masomo mara moja.",
+        faq2Question: "Nitapata support?", faq2Answer: "Ndiyo, utapata msaada wa moja kwa moja kupitia group letu la WhatsApp la wanafunzi.",
+        faq3Question: "Je, bei inaweza kubadilika?", faq3Answer: "Bei inaweza kubadilika kulingana na ofa zilizopo. Hakikisha unathibitisha bei ya sasa kabla ya kulipia."
+      });
+      setEditing(null);
     } catch(e) { toast_(e.message,"error"); }
     setLoading(false);
   };
@@ -605,7 +814,6 @@ function CoursesManager() {
         try {
           await deleteDoc(doc(db, "courses", id));
           setConfirm(null);
-          loadDocs();
           toast_("Kozi imefutwa");
         } catch (e) {
           toast_(e.message, "error");
@@ -624,27 +832,96 @@ function CoursesManager() {
           {editing?"✏️ Hariri Kozi":"➕ Ongeza Kozi Mpya"}
         </h3>
         <div style={{ display:"grid", gap:16 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"80px 1fr", gap:16 }}>
-            <Field label="Emoji"><Input value={form.emoji} onChange={e=>setForm(f=>({...f,emoji:e.target.value}))} placeholder="💻"/></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
             <Field label="Title *"><Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Web Development"/></Field>
+            <Field label="Badge"><Input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="Bestseller / New / Hot"/></Field>
           </div>
-          <Field label="Maelezo"><Textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Maelezo ya kozi..." style={{minHeight:80}}/></Field>
 
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <ImageUploadField label="Real Image URL (Vertical 9:16)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} aspect={9/16} maxWidth={450} maxHeight={800} />
+          
+          <Field label="Short Promise / Value Prop"><Input value={form.shortPromise} onChange={e=>setForm(f=>({...f,shortPromise:e.target.value}))} placeholder="Jifunze stadi za kisasa kwa Kiswahili."/></Field>
+          <Field label="Maelezo"><Textarea value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Maelezo ya kozi..." style={{minHeight:80}}/></Field>
+
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
+            <Field label="Level"><Input value={form.level} onChange={e=>setForm(f=>({...f,level:e.target.value}))} placeholder="Beginner"/></Field>
+            <Field label="Duration"><Input value={form.duration} onChange={e=>setForm(f=>({...f,duration:e.target.value}))} placeholder="4 Weeks"/></Field>
+            <Field label="Total Lessons"><Input value={form.totalLessons} onChange={e=>setForm(f=>({...f,totalLessons:e.target.value}))} placeholder="12"/></Field>
+          </div>
+
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
+            <Field label="Instructor Name"><Input value={form.instructorName} onChange={e=>setForm(f=>({...f,instructorName:e.target.value}))} placeholder="STEA Instructor"/></Field>
+            <Field label="Students Count"><Input value={form.studentsCount} onChange={e=>setForm(f=>({...f,studentsCount:e.target.value}))} placeholder="150"/></Field>
+            <Field label="Rating"><Input value={form.rating} onChange={e=>setForm(f=>({...f,rating:e.target.value}))} placeholder="4.9"/></Field>
+          </div>
+
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+            <Field label="Language"><Input value={form.language} onChange={e=>setForm(f=>({...f,language:e.target.value}))} placeholder="Kiswahili"/></Field>
+            <Field label="Support Type"><Input value={form.supportType} onChange={e=>setForm(f=>({...f,supportType:e.target.value}))} placeholder="WhatsApp Group"/></Field>
+          </div>
+
+          <div style={{ display:"flex", alignItems:"center", gap:20 }}>
             <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14, fontWeight:700 }}>
-              <input type="checkbox" checked={form.type === 'free'} onChange={e=>setForm(f=>({...f,type:e.target.checked?'free':'paid',price:e.target.checked?"Bure":"TZS 5,000/mwezi"}))} style={{ width:18, height:18, accentColor:G }}/>
+              <input type="checkbox" checked={form.free} onChange={e=>setForm(f=>({...f,free:e.target.checked,price:e.target.checked?"Bure · Start now":"TZS 5,000/mwezi · M-Pesa"}))} style={{ width:18, height:18, accentColor:G }}/>
               Kozi ya bure
+            </label>
+            <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14, fontWeight:700 }}>
+              <input type="checkbox" checked={form.certificateIncluded} onChange={e=>setForm(f=>({...f,certificateIncluded:e.target.checked}))} style={{ width:18, height:18, accentColor:G }}/>
+              Certificate Included
             </label>
           </div>
 
-          <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:16 }}>
-            <Field label="Price text"><Input value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="TZS 5,000/mwezi"/></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+            <Field label="Old Price (e.g. TZS 50,000)"><Input value={form.oldPrice} onChange={e=>setForm(f=>({...f,oldPrice:e.target.value}))} placeholder="TZS 50,000"/></Field>
+            <Field label="New Price (e.g. TZS 25,000)"><Input value={form.newPrice} onChange={e=>setForm(f=>({...f,newPrice:e.target.value}))} placeholder="TZS 25,000"/></Field>
           </div>
 
-          <Field label="Lessons (kila lesson kwenye line mpya)">
-            <Textarea value={form.lessons} onChange={e=>setForm(f=>({...f,lessons:e.target.value}))} placeholder={"HTML + CSS foundation\nResponsive layouts\nGitHub Pages deployment"} style={{minHeight:120}}/>
-          </Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+            <Field label="Price text (Legacy Display)"><Input value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="TZS 5,000/mwezi · M-Pesa"/></Field>
+            <Field label="CTA Button text"><Input value={form.cta} onChange={e=>setForm(f=>({...f,cta:e.target.value}))} placeholder="Jiunge Leo"/></Field>
+          </div>
 
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+            <Field label="Admin WhatsApp Number"><Input value={form.adminWhatsAppNumber} onChange={e=>setForm(f=>({...f,adminWhatsAppNumber:e.target.value}))} placeholder="255768260933"/></Field>
+            <Field label="Custom WhatsApp Message"><Input value={form.customWhatsAppMessageTemplate} onChange={e=>setForm(f=>({...f,customWhatsAppMessageTemplate:e.target.value}))} placeholder="Optional custom message..."/></Field>
+          </div>
+
+          <Field label="Price Disclaimer (Short)"><Input value={form.priceDisclaimerShort} onChange={e=>setForm(f=>({...f,priceDisclaimerShort:e.target.value}))} placeholder="Bei elekezi..."/></Field>
+          <Field label="Price Disclaimer (Full)"><Textarea value={form.priceDisclaimerFull} onChange={e=>setForm(f=>({...f,priceDisclaimerFull:e.target.value}))} placeholder="Maelezo marefu ya disclaimer..." style={{minHeight:60}}/></Field>
+
+          <Field label="Lessons List (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.lessons)?form.lessons.join("\n"):form.lessons} onChange={e=>setForm(f=>({...f,lessons:e.target.value}))} placeholder="Lesson 1: Introduction\nLesson 2: Basics..." style={{minHeight:100}}/></Field>
+          <Field label="What You Will Learn (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.whatYouWillLearn)?form.whatYouWillLearn.join("\n"):form.whatYouWillLearn} onChange={e=>setForm(f=>({...f,whatYouWillLearn:e.target.value}))} placeholder="Skill 1\nSkill 2..." style={{minHeight:100}}/></Field>
+          <Field label="What You Will Get (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.whatYouWillGet)?form.whatYouWillGet.join("\n"):form.whatYouWillGet} onChange={e=>setForm(f=>({...f,whatYouWillGet:e.target.value}))} placeholder="Certificate\nSupport..." style={{minHeight:100}}/></Field>
+          <Field label="Suitable For (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.suitableFor)?form.suitableFor.join("\n"):form.suitableFor} onChange={e=>setForm(f=>({...f,suitableFor:e.target.value}))} placeholder="Beginners\nCreators..." style={{minHeight:100}}/></Field>
+          <Field label="Requirements (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.requirements)?form.requirements.join("\n"):form.requirements} onChange={e=>setForm(f=>({...f,requirements:e.target.value}))} placeholder="Laptop\nInternet..." style={{minHeight:100}}/></Field>
+
+          <div style={{ borderTop:"1px solid rgba(255,255,255,.05)", paddingTop:20, marginTop:10 }}>
+            <h4 style={{ fontSize:16, marginBottom:16, color:G }}>Testimonials</h4>
+            <div style={{ display:"grid", gap:20 }}>
+              {[1,2,3].map(num => (
+                <div key={num} style={{ background:"rgba(255,255,255,.02)", padding:16, borderRadius:12, border:"1px solid rgba(255,255,255,.05)" }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:10 }}>
+                    <Field label={`Student ${num} Name`}><Input value={form[`testimonial${num}Name`]} onChange={e=>setForm(f=>({...f,[`testimonial${num}Name`]:e.target.value}))}/></Field>
+                    <Field label={`Student ${num} Role`}><Input value={form[`testimonial${num}Role`]} onChange={e=>setForm(f=>({...f,[`testimonial${num}Role`]:e.target.value}))}/></Field>
+                  </div>
+                  <Field label={`Student ${num} Feedback`}><Textarea value={form[`testimonial${num}Text`]} onChange={e=>setForm(f=>({...f,[`testimonial${num}Text`]:e.target.value}))} style={{minHeight:60}}/></Field>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ borderTop:"1px solid rgba(255,255,255,.05)", paddingTop:20, marginTop:10 }}>
+            <h4 style={{ fontSize:16, marginBottom:16, color:G }}>FAQs</h4>
+            <div style={{ display:"grid", gap:20 }}>
+              {[1,2,3].map(num => (
+                <div key={num} style={{ background:"rgba(255,255,255,.02)", padding:16, borderRadius:12, border:"1px solid rgba(255,255,255,.05)" }}>
+                  <Field label={`FAQ ${num} Question`}><Input value={form[`faq${num}Question`]} onChange={e=>setForm(f=>({...f,[`faq${num}Question`]:e.target.value}))}/></Field>
+                  <Field label={`FAQ ${num} Answer`}><Textarea value={form[`faq${num}Answer`]} onChange={e=>setForm(f=>({...f,[`faq${num}Answer`]:e.target.value}))} style={{minHeight:60}}/></Field>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <Field label="Accent Color (Optional Hex)"><Input value={form.accent} onChange={e=>setForm(f=>({...f,accent:e.target.value}))} placeholder="#f5a623"/></Field>
           <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
         </div>
       </div>
@@ -653,13 +930,27 @@ function CoursesManager() {
         {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna kozi bado. Ongeza ya kwanza! 👆</div>}
         {docs.map(item=>(
           <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"14px 18px", display:"flex", gap:12, alignItems:"center" }}>
-            <div style={{ fontSize:32 }}>{item.emoji}</div>
+            <div style={{ width:48, height:48, borderRadius:10, overflow:"hidden", display:"grid", placeItems:"center", background:"rgba(255,255,255,.05)", flexShrink:0 }}>
+              {item.imageUrl && <img src={item.imageUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" />}
+            </div>
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:2 }}>{item.title}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.type === 'free'?"🆓 Bure":"⭐ Paid"} · {item.price} · {(item.lessons||[]).length} lessons</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.free?"🆓 Bure":"⭐ Paid"} · {item.price} · {(item.lessons||[]).length} lessons</div>
             </div>
             <div style={{ display:"flex", gap:8 }}>
-              <Btn onClick={()=>{setEditing(item.id);setForm({...item,lessons:(item.lessons||[]).join("\n")});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
+              <Btn onClick={()=>{
+                setEditing(item.id);
+                setForm({
+                  ...form, // Default values from initial state
+                  ...item,
+                  lessons: Array.isArray(item.lessons) ? item.lessons.join("\n") : (item.lessons || ""),
+                  whatYouWillLearn: Array.isArray(item.whatYouWillLearn) ? item.whatYouWillLearn.join("\n") : (item.whatYouWillLearn || ""),
+                  whatYouWillGet: Array.isArray(item.whatYouWillGet) ? item.whatYouWillGet.join("\n") : (item.whatYouWillGet || ""),
+                  suitableFor: Array.isArray(item.suitableFor) ? item.suitableFor.join("\n") : (item.suitableFor || ""),
+                  requirements: Array.isArray(item.requirements) ? item.requirements.join("\n") : (item.requirements || ""),
+                });
+                window.scrollTo({top:0,behavior:"smooth"});
+              }} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
               <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
             </div>
           </div>
@@ -674,7 +965,7 @@ function CoursesManager() {
 // ══════════════════════════════════════════════════════
 function ProductsManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ name: "", description: "", price: "", oldPrice: "", icon: "🎧", badge: "", url: "", category: "Electronics" });
+  const [form, setForm] = useState({ name: "", description: "", price: "", oldPrice: "", imageUrl: "", badge: "", url: "", category: "Electronics" });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
@@ -683,26 +974,32 @@ function ProductsManager() {
   const db = getFirebaseDb();
   const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
-  const loadDocs = useCallback(async () => {
-    if (!db) return;
-    const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
-    setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  }, [db]);
-
   useEffect(() => {
-    const t = setTimeout(loadDocs, 0);
-    return () => clearTimeout(t);
-  }, [loadDocs]);
+    if (!db) return;
+    const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Error loading products:", err);
+    });
+    return () => unsub();
+  }, [db]);
 
   const save = async () => {
     if (!form.name.trim() || !form.price.trim() || !form.url.trim()) { toast_("Weka jina, bei na URL", "error"); return; }
     setLoading(true);
     try {
       const data = { ...form, createdAt: serverTimestamp() };
-      if (editing) { await updateDoc(doc(db, "products", editing), { ...data, createdAt: undefined }); toast_("Imesahihishwa!"); }
+      if (editing) {
+        const updateData = { ...data };
+        delete updateData.id;
+        delete updateData.createdAt;
+        await updateDoc(doc(db, "products", editing), updateData);
+        toast_("Imesahihishwa!");
+      }
       else { await addDoc(collection(db, "products"), data); toast_("Bidhaa imewekwa live!"); }
-      setForm({ name: "", description: "", price: "", oldPrice: "", icon: "🎧", badge: "", url: "", category: "Electronics" });
-      setEditing(null); loadDocs();
+      setForm({ name: "", description: "", price: "", oldPrice: "", imageUrl: "", badge: "", url: "", category: "Electronics" });
+      setEditing(null);
     } catch (e) { toast_(e.message, "error"); }
     setLoading(false);
   };
@@ -714,7 +1011,6 @@ function ProductsManager() {
         try {
           await deleteDoc(doc(db, "products", id));
           setConfirm(null);
-          loadDocs();
           toast_("Bidhaa imefutwa");
         } catch (e) {
           toast_(e.message, "error");
@@ -733,11 +1029,11 @@ function ProductsManager() {
           {editing ? "✏️ Hariri Bidhaa" : "➕ Ongeza Bidhaa Mpya"}
         </h3>
         <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr", gap: 16 }}>
-            <Field label="Icon"><Input value={form.icon} onChange={e => setForm(f => ({ ...f, icon: e.target.value }))} placeholder="🎧" /></Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <Field label="Jina la Bidhaa *"><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Sony WH-1000XM4" /></Field>
             <Field label="Category"><Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="Electronics" /></Field>
           </div>
+          <ImageUploadField label="Real Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} aspect={1/1} maxWidth={600} maxHeight={600} />
           <Field label="Maelezo"><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Maelezo ya bidhaa..." style={{ minHeight: 80 }} /></Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
             <Field label="Bei ya Sasa *"><Input value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="TZS 850,000" /></Field>
@@ -753,7 +1049,9 @@ function ProductsManager() {
         {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna bidhaa bado. Ongeza ya kwanza! 👆</div>}
         {docs.map(item => (
           <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ fontSize: 32 }}>{item.icon}</div>
+            <div style={{ width:48, height:48, borderRadius:10, overflow:"hidden", display:"grid", placeItems:"center", background:"rgba(255,255,255,.05)" }}>
+              {item.imageUrl && <img src={item.imageUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" />}
+            </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: 15 }}>{item.name}</div>
               <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.category} · {item.price}</div>
@@ -774,7 +1072,7 @@ function ProductsManager() {
 // ══════════════════════════════════════════════════════
 function WebsitesManager() {
   const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ name: "", url: "", description: "", icon: "🌐", bg: "linear-gradient(135deg,#667eea,#764ba2)", meta: "Free Tool", tags: "" });
+  const [form, setForm] = useState({ name: "", url: "", description: "", iconUrl: "", imageUrl: "", bg: "linear-gradient(135deg,#667eea,#764ba2)", meta: "Free Tool", tags: "" });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
@@ -783,26 +1081,32 @@ function WebsitesManager() {
   const db = getFirebaseDb();
   const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
-  const loadDocs = useCallback(async () => {
-    if (!db) return;
-    const snap = await getDocs(query(collection(db, "websites"), orderBy("createdAt", "desc")));
-    setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  }, [db]);
-
   useEffect(() => {
-    const t = setTimeout(loadDocs, 0);
-    return () => clearTimeout(t);
-  }, [loadDocs]);
+    if (!db) return;
+    const q = query(collection(db, "websites"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Error loading websites:", err);
+    });
+    return () => unsub();
+  }, [db]);
 
   const save = async () => {
     if (!form.name.trim() || !form.url.trim()) { toast_("Weka jina na URL", "error"); return; }
     setLoading(true);
     try {
       const data = { ...form, tags: form.tags.split(",").map(t => t.trim()).filter(Boolean), createdAt: serverTimestamp() };
-      if (editing) { await updateDoc(doc(db, "websites", editing), { ...data, createdAt: undefined }); toast_("Imesahihishwa!"); }
+      if (editing) {
+        const updateData = { ...data };
+        delete updateData.id;
+        delete updateData.createdAt;
+        await updateDoc(doc(db, "websites", editing), updateData);
+        toast_("Imesahihishwa!");
+      }
       else { await addDoc(collection(db, "websites"), data); toast_("Website imewekwa live!"); }
-      setForm({ name: "", url: "", description: "", icon: "🌐", bg: "linear-gradient(135deg,#667eea,#764ba2)", meta: "Free Tool", tags: "" });
-      setEditing(null); loadDocs();
+      setForm({ name: "", url: "", description: "", iconUrl: "", imageUrl: "", bg: "linear-gradient(135deg,#667eea,#764ba2)", meta: "Free Tool", tags: "" });
+      setEditing(null);
     } catch (e) { toast_(e.message, "error"); }
     setLoading(false);
   };
@@ -814,7 +1118,6 @@ function WebsitesManager() {
         try {
           await deleteDoc(doc(db, "websites", id));
           setConfirm(null);
-          loadDocs();
           toast_("Website imefutwa");
         } catch (e) {
           toast_(e.message, "error");
@@ -833,17 +1136,17 @@ function WebsitesManager() {
           {editing ? "✏️ Hariri Website" : "➕ Ongeza Website Mpya"}
         </h3>
         <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 16 }}>
-            <Field label="Icon"><Input value={form.icon} onChange={e => setForm(f => ({ ...f, icon: e.target.value }))} placeholder="🌐" /></Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
             <Field label="Jina la Website *"><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Remove.bg" /></Field>
           </div>
+          <ImageUploadField label="Website Icon URL (Optional)" value={form.iconUrl} onChange={val => setForm(f => ({ ...f, iconUrl: val }))} aspect={1} maxWidth={256} maxHeight={256} />
+          <ImageUploadField label="Thumbnail Image URL (16:9)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} aspect={16/9} maxWidth={800} maxHeight={450} />
           <Field label="URL *"><Input value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} placeholder="https://remove.bg" /></Field>
           <Field label="Maelezo"><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Maelezo mafupi..." style={{ minHeight: 80 }} /></Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <Field label="Meta Info"><Input value={form.meta} onChange={e => setForm(f => ({ ...f, meta: e.target.value }))} placeholder="Free AI Tool" /></Field>
             <Field label="Tags (comma separated)"><Input value={form.tags} onChange={e => setForm(f => ({ ...f, tags: e.target.value }))} placeholder="AI, Design, Tools" /></Field>
           </div>
-          <Field label="Background Gradient"><Input value={form.bg} onChange={e => setForm(f => ({ ...f, bg: e.target.value }))} placeholder="linear-gradient(135deg,#667eea,#764ba2)" /></Field>
           <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : editing ? "💾 Hifadhi" : "🚀 Weka Live"}</Btn>
         </div>
       </div>
@@ -852,13 +1155,162 @@ function WebsitesManager() {
         {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna websites bado. Ongeza ya kwanza! 👆</div>}
         {docs.map(item => (
           <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ fontSize: 32 }}>{item.icon}</div>
+            <div style={{ width:48, height:48, borderRadius:10, overflow:"hidden", display:"grid", placeItems:"center", background:"rgba(255,255,255,.05)" }}>
+              {item.iconUrl ? <img src={item.iconUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" /> : item.imageUrl && <img src={item.imageUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" />}
+            </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: 15 }}>{item.name}</div>
               <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.url}</div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => { setEditing(item.id); setForm({ ...item, tags: (item.tags || []).join(", ") }); window.scrollTo({ top: 0, behavior: "smooth" }); }} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
+              <Btn onClick={() => { setEditing(item.id); setForm({ iconUrl: "", imageUrl: "", ...item, tags: (item.tags || []).join(", ") }); window.scrollTo({ top: 0, behavior: "smooth" }); }} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
+              <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PromptsManager() {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ 
+    category: "", 
+    title: "", 
+    prompt: "", 
+    imageUrl: "", 
+    howToUse: "", 
+    tools: [] 
+  });
+  const [toast, setToast] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const db = getFirebaseDb();
+
+  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+
+  useEffect(() => {
+    if (!db) return;
+    const q = query(collection(db, "prompts"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    }, (err) => {
+      console.error("Error loading prompts:", err);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [db]);
+
+  const save = async () => {
+    if (!form.title || !form.prompt) return toast_("Jaza kila kitu!", "error");
+    setLoading(true);
+    try {
+      const payload = {
+        ...form,
+        tools: form.tools.filter(t => t.toolUrl) // Filter out empty tools
+      };
+      if (editing) {
+        const updateData = { ...payload };
+        delete updateData.id;
+        delete updateData.createdAt;
+        await updateDoc(doc(db, "prompts", editing), { ...updateData, updatedAt: serverTimestamp() });
+        toast_("Prompt imebadilishwa");
+      } else {
+        await addDoc(collection(db, "prompts"), { ...payload, createdAt: serverTimestamp() });
+        toast_("Prompt mpya imeongezwa");
+      }
+      setForm({ category: "", title: "", prompt: "", imageUrl: "", howToUse: "", tools: [] });
+      setEditing(null);
+    } catch (e) {
+      toast_(e.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addTool = () => {
+    if (form.tools.length >= 5) return toast_("Mwisho ni tools 5 tu!", "error");
+    setForm(f => ({ ...f, tools: [...f.tools, { iconUrl: "", toolUrl: "" }] }));
+  };
+
+  const updateTool = (index, field, value) => {
+    const newTools = [...form.tools];
+    newTools[index] = { ...newTools[index], [field]: value };
+    setForm(f => ({ ...f, tools: newTools }));
+  };
+
+  const removeTool = (index) => {
+    setForm(f => ({ ...f, tools: f.tools.filter((_, i) => i !== index) }));
+  };
+
+  const del = (id) => {
+    setConfirm({
+      msg: "Una uhakika unataka kufuta prompt hii?",
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, "prompts", id));
+          setConfirm(null);
+          toast_("Prompt imefutwa");
+        } catch (e) {
+          toast_(e.message, "error");
+        }
+      },
+      onCancel: () => setConfirm(null)
+    });
+  };
+
+  return (
+    <div>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+      {confirm && <ConfirmDialog {...confirm} />}
+      <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", background: "#141823", padding: 24, marginBottom: 28 }}>
+        <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, margin: "0 0 20px" }}>
+          {editing ? "✏️ Hariri Prompt" : "➕ Ongeza Prompt Mpya"}
+        </h3>
+        <div style={{ display: "grid", gap: 16 }}>
+          <Field label="Title *"><Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Business Plan Generator" /></Field>
+          <ImageUploadField label="Real Image URL (Vertical 9:16)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} aspect={9/16} maxWidth={450} maxHeight={800} />
+          <Field label="Category"><Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="Biashara" /></Field>
+          <Field label="Prompt *"><Textarea value={form.prompt} onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))} placeholder="Andika prompt yako hapa..." style={{ minHeight: 120 }} /></Field>
+          
+          <Field label="How to Use (Step by Step)"><Textarea value={form.howToUse} onChange={e => setForm(f => ({ ...f, howToUse: e.target.value }))} placeholder="1. Copy prompt\n2. Open ChatGPT\n3. Paste and run..." style={{ minHeight: 80 }} /></Field>
+
+          <div style={{ marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,.6)", textTransform: "uppercase", letterSpacing: 1 }}>Tools to Use (Max 5)</div>
+              <Btn onClick={addTool} style={{ padding: "4px 12px", fontSize: 12 }} color="rgba(255,255,255,.05)">+ Ongeza Tool</Btn>
+            </div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {form.tools.map((tool, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 40px", gap: 10, alignItems: "end" }}>
+                  <Field label={`Tool ${i+1} Icon URL`}><Input value={tool.iconUrl} onChange={e => updateTool(i, "iconUrl", e.target.value)} placeholder="https://... (ChatGPT icon)" /></Field>
+                  <Field label={`Tool ${i+1} Website URL`}><Input value={tool.toolUrl} onChange={e => updateTool(i, "toolUrl", e.target.value)} placeholder="https://chat.openai.com" /></Field>
+                  <Btn onClick={() => removeTool(i)} color="rgba(239,68,68,.1)" textColor="#fca5a5" style={{ padding: 10, marginBottom: 4 }}>✕</Btn>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : editing ? "💾 Hifadhi" : "🚀 Weka Live"}</Btn>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gap: 12 }}>
+        {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna prompts bado. Ongeza ya kwanza! 👆</div>}
+        {docs.map(item => (
+          <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ width:48, height:48, borderRadius:10, overflow:"hidden", display:"grid", placeItems:"center", background:"rgba(255,255,255,.05)" }}>
+              {item.imageUrl && <img src={item.imageUrl} style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer" />}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{item.title}</div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.category} • {item.tools?.length || 0} Tools</div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn onClick={() => { setEditing(item.id); setForm({ ...item, tools: item.tools || [] }); window.scrollTo({ top: 0, behavior: "smooth" }); }} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
               <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
             </div>
           </div>
@@ -869,276 +1321,8 @@ function WebsitesManager() {
 }
 
 // ══════════════════════════════════════════════════════
-// SETTINGS MANAGER
-// ══════════════════════════════════════════════════════
-function SettingsManager() {
-  const [form, setForm] = useState({ faviconUrl: "" });
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState(null);
-  const db = getFirebaseDb();
-
-  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  useEffect(() => {
-    const loadSettings = async () => {
-      if (!db) return;
-      try {
-        const snap = await getDocs(query(collection(db, "settings")));
-        if (!snap.empty) {
-          const data = snap.docs[0].data();
-          setForm({ faviconUrl: data.faviconUrl || "" });
-        }
-      } catch (err) {
-        console.error("Error loading settings:", err);
-      }
-    };
-    loadSettings();
-  }, [db]);
-
-  const save = async () => {
-    setLoading(true);
-    try {
-      const snap = await getDocs(query(collection(db, "settings")));
-      if (snap.empty) {
-        await addDoc(collection(db, "settings"), { ...form, createdAt: serverTimestamp() });
-      } else {
-        await updateDoc(doc(db, "settings", snap.docs[0].id), { ...form, updatedAt: serverTimestamp() });
-      }
-      toast_("Settings saved successfully!");
-    } catch (e) {
-      toast_(e.message, "error");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", background: "#141823", padding: 24, marginBottom: 28 }}>
-        <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, margin: "0 0 20px" }}>⚙️ Settings</h3>
-        <div style={{ display: "grid", gap: 16 }}>
-          <ImageUpload value={form.faviconUrl} onChange={v => setForm(f => ({ ...f, faviconUrl: v }))} label="Favicon Image URL" />
-          <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : "💾 Hifadhi Settings"}</Btn>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// CHATS MANAGER
-// ══════════════════════════════════════════════════════
-function ChatsManager() {
-  const [chats, setChats] = useState([]);
-  const [selectedChat, setSelectedChat] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [reply, setReply] = useState("");
-  const db = getFirebaseDb();
-  const messagesEndRef = useRef(null);
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "chats"), orderBy("lastUpdated", "desc"));
-    const unsub = onSnapshot(q, snap => {
-      setChats(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return () => unsub();
-  }, [db]);
-
-  useEffect(() => {
-    if (!db || !selectedChat) return;
-    const q = query(collection(db, `chats/${selectedChat}/messages`), orderBy("timestamp", "asc"));
-    const unsub = onSnapshot(q, snap => {
-      setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    });
-    // Mark as read
-    updateDoc(doc(db, "chats", selectedChat), { unreadCount: 0 }).catch(console.error);
-    return () => unsub();
-  }, [db, selectedChat]);
-
-  const sendReply = async (e) => {
-    e.preventDefault();
-    if (!reply.trim() || !selectedChat) return;
-    await addDoc(collection(db, `chats/${selectedChat}/messages`), {
-      text: reply,
-      sender: "admin",
-      timestamp: serverTimestamp()
-    });
-    await updateDoc(doc(db, "chats", selectedChat), {
-      lastMessage: reply,
-      lastUpdated: serverTimestamp()
-    });
-    setReply("");
-  };
-
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 24, height: "calc(100vh - 140px)" }}>
-      {/* Chat List */}
-      <div style={{ background: "#141823", borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", overflowY: "auto", padding: 16 }}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 16, color: "rgba(255,255,255,.5)" }}>Recent Chats</h3>
-        <div style={{ display: "grid", gap: 8 }}>
-          {chats.map(c => (
-            <div key={c.id} onClick={() => setSelectedChat(c.id)} style={{ padding: 12, borderRadius: 12, background: selectedChat === c.id ? "rgba(245,166,35,.1)" : "rgba(255,255,255,.03)", border: `1px solid ${selectedChat === c.id ? "#F5A623" : "transparent"}`, cursor: "pointer" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <strong style={{ fontSize: 14, color: selectedChat === c.id ? "#F5A623" : "#fff" }}>{c.userName}</strong>
-                {c.unreadCount > 0 && <span style={{ background: "#ef4444", color: "#fff", fontSize: 10, padding: "2px 6px", borderRadius: 10 }}>{c.unreadCount}</span>}
-              </div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,.5)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.lastMessage}</div>
-            </div>
-          ))}
-          {chats.length === 0 && <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,.3)" }}>Hakuna chats bado.</div>}
-        </div>
-      </div>
-
-      {/* Chat Area */}
-      <div style={{ background: "#141823", borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {selectedChat ? (
-          <>
-            <div style={{ padding: 16, borderBottom: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.02)" }}>
-              <strong style={{ fontSize: 16 }}>{chats.find(c => c.id === selectedChat)?.userName}</strong>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)" }}>{chats.find(c => c.id === selectedChat)?.userEmail}</div>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-              {messages.map(m => (
-                <div key={m.id} style={{ maxWidth: "70%", padding: "10px 14px", borderRadius: 14, alignSelf: m.sender === "admin" ? "flex-end" : "flex-start", background: m.sender === "admin" ? "rgba(245,166,35,.2)" : "rgba(255,255,255,.05)", color: "#fff", borderBottomRightRadius: m.sender === "admin" ? 4 : 14, borderBottomLeftRadius: m.sender !== "admin" ? 4 : 14 }}>
-                  {m.text}
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-            <form onSubmit={sendReply} style={{ padding: 16, borderTop: "1px solid rgba(255,255,255,.08)", display: "flex", gap: 12 }}>
-              <Input value={reply} onChange={e => setReply(e.target.value)} placeholder="Type your reply..." style={{ flex: 1 }} />
-              <Btn type="submit" disabled={!reply.trim()}>Send</Btn>
-            </form>
-          </>
-        ) : (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,.3)" }}>
-            Select a chat to view messages
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
 // USERS MANAGER
 // ══════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════
-// PROMPT LAB MANAGER
-// ══════════════════════════════════════════════════════
-function PromptLabManager() {
-  const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({
-    category:"📱 Social Media", emoji:"📸", title:"", prompt:"", tags:"",
-    guide:"", active:true, imageUrl:""
-  });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState(null);
-
-  const db = getFirebaseDb();
-  const G = "#F5A623", G2 = "#FFD17C";
-  const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
-
-  const CATEGORIES = ["📱 Social Media","🤖 AI Business","📝 Content Creation","💰 Affiliate Marketing","🎓 Learning","📧 Professional"];
-
-  useEffect(()=>{ loadDocs(); },[]);
-  const loadDocs = async () => {
-    if(!db) return;
-    const snap = await getDocs(query(collection(db,"prompts"), orderBy("createdAt","desc")));
-    setDocs(snap.docs.map(d=>({id:d.id,...d.data()})));
-  };
-
-  const save = async () => {
-    if(!form.title.trim()||!form.prompt.trim()){ toast_("Weka title na prompt kwanza","error"); return; }
-    setLoading(true);
-    try {
-      const data = {
-        ...form,
-        tags: form.tags.split(",").map(t=>t.trim()).filter(Boolean),
-        guide: form.guide.split("\n").map(g=>g.trim()).filter(Boolean),
-        createdAt: serverTimestamp(),
-      };
-      if(editing){ await updateDoc(doc(db,"prompts",editing), {...data,createdAt:undefined}); toast_("Imesahihishwa!"); }
-      else { await addDoc(collection(db,"prompts"), data); toast_("Prompt imewekwa live!"); }
-      setForm({ category:"📱 Social Media", emoji:"📸", title:"", prompt:"", tags:"", guide:"", active:true, imageUrl:"" });
-      setEditing(null); loadDocs();
-    } catch(e){ toast_(e.message,"error"); }
-    setLoading(false);
-  };
-
-  const del = async (id) => {
-    if(!confirm("Futa prompt hii?")) return;
-    await deleteDoc(doc(db,"prompts",id)); loadDocs(); toast_("Imefutwa");
-  };
-
-  return (
-    <div>
-      {toast && <div style={{position:"fixed",bottom:24,right:24,zIndex:9999,padding:"13px 18px",borderRadius:13,fontWeight:700,fontSize:14,background:toast.type==="error"?"rgba(239,68,68,.95)":"rgba(0,196,140,.95)",color:"#fff"}}>{toast.type==="error"?"❌":"✅"} {toast.msg}</div>}
-
-      {/* Form */}
-      <div style={{borderRadius:20,border:"1px solid rgba(255,255,255,.08)",background:"#141823",padding:24,marginBottom:28}}>
-        <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:20,margin:"0 0 20px"}}>{editing?"✏️ Hariri Prompt":"➕ Ongeza Prompt Mpya"}</h3>
-        <div style={{display:"grid",gap:16}}>
-
-          <div style={{display:"grid",gridTemplateColumns:"60px 1fr 1fr",gap:16}}>
-            <Field label="Emoji"><Input value={form.emoji} onChange={e=>setForm(f=>({...f,emoji:e.target.value}))} placeholder="📸"/></Field>
-            <Field label="Title *"><Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Caption ya Instagram..."/></Field>
-            <Field label="Category">
-              <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={{height:46,borderRadius:12,border:"1px solid rgba(255,255,255,.1)",background:"#1a1d2e",color:"#fff",padding:"0 14px",outline:"none",fontFamily:"inherit",fontSize:14,width:"100%",cursor:"pointer"}}>
-                {CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
-          </div>
-
-          <ImageUpload value={form.imageUrl} onChange={val=>setForm(f=>({...f,imageUrl:val}))} label="Image URL (Thumbnail)" />
-
-          <Field label="Prompt (ndiyo maudhui ya kukopisha) *">
-            <Textarea value={form.prompt} onChange={e=>setForm(f=>({...f,prompt:e.target.value}))} placeholder="Niandikia caption ya Instagram kwa biashara ya [AINA YA BIASHARA]..." style={{minHeight:140,fontFamily:"monospace",fontSize:13}}/>
-          </Field>
-
-          <Field label="Tags (tenganisha kwa comma)">
-            <Input value={form.tags} onChange={e=>setForm(f=>({...f,tags:e.target.value}))} placeholder="Instagram, Caption, Kiswahili"/>
-          </Field>
-
-          <Field label="Step-by-step Guide (kila hatua kwenye line mpya)">
-            <Textarea value={form.guide} onChange={e=>setForm(f=>({...f,guide:e.target.value}))} placeholder={`Badilisha [AINA YA BIASHARA] na biashara yako
-Nakili prompt → Weka kwenye ChatGPT
-Edit matokeo kulingana na brand yako`} style={{minHeight:120}}/>
-          </Field>
-
-          <div style={{display:"flex",gap:10}}>
-            <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
-            {editing && <Btn onClick={()=>{setEditing(null);setForm({category:"📱 Social Media",emoji:"📸",title:"",prompt:"",tags:"",guide:"",active:true,imageUrl:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
-          </div>
-        </div>
-      </div>
-
-      {/* List */}
-      <div style={{display:"grid",gap:10}}>
-        {docs.length===0 && <div style={{textAlign:"center",padding:40,color:"rgba(255,255,255,.35)"}}>Hakuna prompts bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item=>(
-          <div key={item.id} style={{borderRadius:16,border:"1px solid rgba(255,255,255,.07)",background:"#1a1d2e",padding:"14px 18px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-            <div style={{fontSize:28,flexShrink:0}}>{item.emoji||"⚗️"}</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:800,fontSize:14,marginBottom:2}}>{item.title}</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.4)"}}>{item.category} · {(item.tags||[]).join(", ")}</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.3)",marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:400}}>{item.prompt?.slice(0,80)}...</div>
-            </div>
-            <div style={{display:"flex",gap:8,flexShrink:0}}>
-              <Btn onClick={()=>{setEditing(item.id);setForm({...item,tags:(item.tags||[]).join(", "),guide:(item.guide||[]).join("\n")});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor="#F5A623" style={{padding:"8px 14px"}}>✏️</Btn>
-              <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-
 function UsersManager() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1149,26 +1333,21 @@ function UsersManager() {
 
   const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
-  const loadUsers = useCallback(async () => {
-    if (!db) return;
-    try {
-      const snap = await getDocs(collection(db, "users"));
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (err) {
-      console.error("Error loading users:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [db]);
-
   useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+    if (!db) return;
+    const unsub = onSnapshot(collection(db, "users"), (snap) => {
+      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    }, (err) => {
+      console.error("Error loading users:", err);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [db]);
 
   const setRole = async (uid, role) => {
     try {
       await updateDoc(doc(db, "users", uid), { role });
-      setUsers(u => u.map(x => x.id === uid ? { ...x, role } : x));
       toast_(`Role imebadilishwa kuwa ${role}`);
     } catch (e) {
       toast_(e.message, "error");
@@ -1182,7 +1361,6 @@ function UsersManager() {
         try {
           await deleteDoc(doc(db, "users", uid));
           setConfirm(null);
-          loadUsers();
           toast_("User amefutwa Firestore");
         } catch (e) {
           toast_(e.message, "error");
@@ -1252,32 +1430,32 @@ function UsersManager() {
 // ══════════════════════════════════════════════════════
 export default function AdminPanel({ user, onBack }) {
   const [section, setSection] = useState("overview");
-  const [counts,  setCounts]  = useState({ tips:0, updates:0, deals:0, courses:0, users:0, products:0, websites:0 });
+  const [counts,  setCounts]  = useState({ tips:0, updates:0, deals:0, courses:0, users:0, products:0, websites:0, prompts:0 });
 
   const db = getFirebaseDb();
 
   useEffect(() => {
     if (!db) return;
-    const cols = ["tips","updates","deals","courses","users","products","websites"];
-    Promise.all(cols.map(c=>getDocs(collection(db,c)))).then(snaps=>{
-      const [tips,updates,deals,courses,users,products,websites] = snaps.map(s=>s.size);
-      setCounts({tips,updates,deals,courses,users,products,websites});
-    }).catch(err => {
-      console.error("Error loading counts:", err);
-    });
-  }, [db, section]);
+    const cols = ["tips","updates","deals","courses","users","products","websites","prompts"];
+    const unsubs = cols.map(c => 
+      onSnapshot(collection(db, c), (snap) => {
+        setCounts(prev => ({ ...prev, [c]: snap.size }));
+      }, (err) => {
+        console.error(`Error loading count for ${c}:`, err);
+      })
+    );
+    return () => unsubs.forEach(unsub => unsub());
+  }, [db]);
 
   const SECTIONS = [
     { id:"overview", icon:"📊", label:"Overview" },
     { id:"tips",     icon:"💡", label:"Tech Tips" },
     { id:"updates",  icon:"📰", label:"Tech Updates" },
+    { id:"prompts",  icon:"🤖", label:"Prompt Lab" },
     { id:"deals",    icon:"🏷️", label:"Deals" },
     { id:"courses",  icon:"🎓", label:"Courses" },
     { id:"products", icon:"🛒", label:"Duka" },
     { id:"websites", icon:"🌐", label:"Websites" },
-    { id:"lab",      icon:"⚗️", label:"Prompt Lab" },
-    { id:"chats",    icon:"💬", label:"Chats" },
-    { id:"settings", icon:"⚙️", label:"Settings" },
     { id:"users",    icon:"👥", label:"Users" },
   ];
 
@@ -1327,6 +1505,7 @@ export default function AdminPanel({ user, onBack }) {
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:16, marginBottom:32 }}>
               <StatCard icon="💡" label="Tech Tips Posts" value={counts.tips}/>
               <StatCard icon="📰" label="Tech Updates" value={counts.updates} color="#56b7ff"/>
+              <StatCard icon="🤖" label="Prompts" value={counts.prompts} color="#ff85cf"/>
               <StatCard icon="🏷️" label="Active Deals" value={counts.deals} color="#a5b4fc"/>
               <StatCard icon="🎓" label="Courses" value={counts.courses} color="#67f0c1"/>
               <StatCard icon="🛒" label="Duka Products" value={counts.products} color="#fbbf24"/>
@@ -1359,13 +1538,11 @@ export default function AdminPanel({ user, onBack }) {
 
         {section==="tips"    && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>💡 Manage <span style={{color:G}}>Tech Tips</span></h2><TipsManager/></>}
         {section==="updates" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>📰 Manage <span style={{color:G}}>Tech Updates</span></h2><UpdatesManager/></>}
+        {section==="prompts" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🤖 Manage <span style={{color:G}}>Prompt Lab</span></h2><PromptsManager/></>}
         {section==="deals"   && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🏷️ Manage <span style={{color:G}}>Deals</span></h2><DealsManager/></>}
         {section==="courses" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🎓 Manage <span style={{color:G}}>Courses</span></h2><CoursesManager/></>}
         {section==="products" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🛒 Manage <span style={{color:G}}>Duka Products</span></h2><ProductsManager/></>}
         {section==="websites" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🌐 Manage <span style={{color:G}}>Websites</span></h2><WebsitesManager/></>}
-        {section==="lab"     && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>⚗️ Manage <span style={{color:G}}>Prompt Lab</span></h2><PromptLabManager/></>}
-        {section==="chats"   && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>💬 Manage <span style={{color:G}}>Chats</span></h2><ChatsManager/></>}
-        {section==="settings" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>⚙️ Manage <span style={{color:G}}>Settings</span></h2><SettingsManager/></>}
         {section==="users"   && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>👥 Manage <span style={{color:G}}>Users</span></h2><UsersManager/></>}
       </div>
 
