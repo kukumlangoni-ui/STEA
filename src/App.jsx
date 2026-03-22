@@ -326,11 +326,11 @@ function Counter({target}){
   return <span ref={ref}>{target>=200?v+"K+":v+"+"}</span>;
 }
 
-function TiltCard({children,style={}}){
+function TiltCard({children,style={},className=""}){
   const ref=useRef(null);
   const apply=useCallback((x,y)=>{const c=ref.current;if(!c)return;const r=c.getBoundingClientRect();const px=(x-r.left)/r.width,py=(y-r.top)/r.height;c.style.transform=`perspective(900px) rotateX(${(0.5-py)*7}deg) rotateY(${(px-0.5)*9}deg) translateY(-6px)`;c.style.boxShadow="0 22px 54px rgba(0,0,0,.4)";c.style.borderColor="rgba(245,166,35,.25)";},[]);
   const reset=useCallback(()=>{if(!ref.current)return;ref.current.style.transform="";ref.current.style.boxShadow="0 12px 36px rgba(0,0,0,.2)";ref.current.style.borderColor="rgba(255,255,255,.08)";},[]);
-  return(<div ref={ref} onMouseMove={e=>apply(e.clientX,e.clientY)} onMouseLeave={reset} onTouchStart={e=>{const t=e.touches[0];apply(t.clientX,t.clientY);}} onTouchMove={e=>{const t=e.touches[0];apply(t.clientX,t.clientY);}} onTouchEnd={()=>setTimeout(reset,300)} style={{borderRadius:20,border:"1px solid rgba(255,255,255,.08)",background:CB,overflow:"hidden",transition:"border-color .3s,box-shadow .3s",boxShadow:"0 12px 36px rgba(0,0,0,.2)",transformStyle:"preserve-3d",...style}}>{children}</div>);
+  return(<div ref={ref} onMouseMove={e=>apply(e.clientX,e.clientY)} onMouseLeave={reset} onTouchStart={e=>{const t=e.touches[0];apply(t.clientX,t.clientY);}} onTouchMove={e=>{const t=e.touches[0];apply(t.clientX,t.clientY);}} onTouchEnd={()=>setTimeout(reset,300)} className={className} style={{borderRadius:20,border:"1px solid rgba(255,255,255,.08)",background:CB,overflow:"hidden",transition:"border-color .3s,box-shadow .3s",boxShadow:"0 12px 36px rgba(0,0,0,.2)",transformStyle:"preserve-3d",...style}}>{children}</div>);
 }
 
 function Thumb({bg,iconUrl,name,domain,badge,bt,imageUrl,id}){
@@ -771,7 +771,7 @@ function CoursesPage({ goPage }){
         <div style={{ display: "grid", gap: 32, marginBottom: 80 }}>
           {loading ? [1, 2].map(i => <Skeleton key={i} />) : courses.map((c, i) => {
             return (
-              <TiltCard key={c.id || i} style={{ display: "grid", gridTemplateColumns: "clamp(250px, 35%, 400px) 1fr", minHeight: 400, overflow: "hidden" }}>
+              <TiltCard key={c.id || i} className="course-list-card" style={{ display: "grid", gridTemplateColumns: "clamp(250px, 35%, 400px) 1fr", minHeight: 400, overflow: "hidden" }}>
                 {/* Left: Image & Badge */}
                 <div style={{ position: "relative", background: c.imageUrl ? `url(${c.imageUrl}) center/cover no-repeat` : "rgba(255,255,255,.05)", borderRight: "1px solid rgba(255,255,255,.05)" }}>
                   {!c.imageUrl && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", opacity: .1 }}><BookOpen size={64} /></div>}
@@ -786,7 +786,7 @@ function CoursesPage({ goPage }){
                 <div style={{ padding: "32px 40px", display: "flex", flexDirection: "column", gap: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, color: G, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+                      <div className="course-meta" style={{ display: "flex", alignItems: "center", gap: 8, color: G, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
                         <Award size={14} />
                         <span>{c.level || "Beginner"}</span>
                         <span style={{ opacity: .3 }}>•</span>
@@ -1822,7 +1822,7 @@ function ContactPage() {
     <section style={{ padding: "60px 0" }}>
       <W>
         <SHead title="Wasiliana" hi="Nasi" copy="Una swali, maoni au unahitaji msaada? Tuandikie ujumbe hapa chini." />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 60, marginTop: 40 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,280px),1fr))", gap: "clamp(24px,4vw,60px)", marginTop: 40 }}>
           <div>
             <div style={{ marginBottom: 32 }}>
               <div style={{ color: G, fontWeight: 800, textTransform: "uppercase", fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>Email</div>
@@ -2317,6 +2317,59 @@ body{overscroll-behavior:none}
 .faq-item summary::-webkit-details-marker{display:none}
 @media(max-width:640px){.faq-item summary{padding:20px;font-size:16px}.faq-item div{padding:0 20px 20px;font-size:15px}}
 
+/* Course list card — stack on tablet/mobile */
+@media(max-width:900px){
+  .course-list-card{grid-template-columns:1fr!important;min-height:auto!important}
+  .course-list-card > div:first-child{min-height:220px;border-right:none!important;border-bottom:1px solid rgba(255,255,255,.05)}
+  .course-list-card > div:last-child{padding:20px 24px!important}
+}
+@media(max-width:480px){
+  .course-list-card > div:first-child{min-height:180px}
+  .course-list-card > div:last-child{padding:16px!important}
+  .course-list-card h3{font-size:20px!important}
+}
+/* Courses detail grid fix */
+@media(max-width:768px){
+  .course-detail-meta{grid-template-columns:1fr!important}
+  .course-learn-grid{grid-template-columns:1fr!important}
+  .course-cta-section{padding:40px 20px!important}
+  .course-cta-section h2{font-size:28px!important}
+  .course-price{font-size:36px!important}
+}
+/* Course list card — stack on tablet/mobile */
+@media(max-width:1024px){
+  .course-list-card{grid-template-columns:1fr!important;min-height:auto!important}
+  .course-list-card > div:first-child{min-height:240px;border-right:none!important;border-bottom:1px solid rgba(255,255,255,.05)}
+  .course-list-card > div:last-child{padding:20px 24px!important}
+}
+@media(max-width:480px){
+  .course-list-card > div:first-child{min-height:180px}
+  .course-list-card > div:last-child{padding:16px!important}
+  .course-list-card h3{font-size:20px!important}
+  .course-list-card .course-meta{flex-wrap:wrap;gap:6px!important}
+}
+
+/* Contact page grid — stack on mobile */
+@media(max-width:768px){
+  .contact-grid{grid-template-columns:1fr!important}
+  .learn-grid{grid-template-columns:1fr!important}
+}
+
+/* Course list card — stack on tablet/mobile */
+@media(max-width:900px){
+  .course-list-card{grid-template-columns:1fr!important;min-height:auto!important}
+  .course-list-card > div:first-child{min-height:220px;border-right:none!important;border-bottom:1px solid rgba(255,255,255,.05)}
+  .course-list-card > div:last-child{padding:20px 24px!important}
+}
+@media(max-width:480px){
+  .course-list-card > div:first-child{min-height:180px}
+  .course-list-card > div:last-child{padding:16px!important}
+  .course-list-card h3{font-size:20px!important}
+}
+/* Contact page grid */
+@media(max-width:768px){
+  .contact-grid{grid-template-columns:1fr!important;gap:32px!important}
+}
 /* Nav */
 @media(max-width:900px){#desktopNav{display:none!important}}
 @media(min-width:901px){#hamburger{display:none!important}}
@@ -2437,7 +2490,7 @@ body{overscroll-behavior:none}
           <footer style={{background:"#05060a",borderTop:"1px solid rgba(255,255,255,.06)",padding:"80px 0 40px",marginTop:100}}>
             <W>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:60,marginBottom:60}}>
-                <div style={{gridColumn:"span 2"}}>
+                <div style={{gridColumn:"span 1"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
                     <div style={{width:48,height:48,borderRadius:16,display:"grid",placeItems:"center",background:`linear-gradient(135deg,${G},${G2})`,color:"#111"}}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></div>
                     <strong style={{fontSize:24,letterSpacing:"-.04em",fontWeight:800}}>STEA</strong>
