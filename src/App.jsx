@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, Component } from "react";
-import { AlertCircle } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
+import { AlertCircle, Copy, Download, Maximize2, Check, Send, ChevronRight, Zap, BookOpen, Star, Users, Clock, Award, HelpCircle, ShieldCheck, MessageCircle, X, Mail } from "lucide-react";
+import { jsPDF } from "jspdf";
+import confetti from "canvas-confetti";
 import { initFirebase, getFirebaseAuth, getFirebaseDb,
   GoogleAuthProvider, ADMIN_EMAIL, doc, setDoc, getDoc,
   serverTimestamp, normalizeEmail,
@@ -60,52 +62,153 @@ class ErrorBoundary extends Component {
 // ── Tokens ────────────────────────────────────────────
 const G = "#F5A623", G2 = "#FFD17C", CB = "#141823";
 
+// ── Earth Hero Component ──────────────────────────────
+function EarthHero() {
+  return (
+    <div style={{
+      position: "absolute",
+      right: -180,
+      top: "50%",
+      transform: "translateY(-50%)",
+      width: "clamp(500px, 60vw, 950px)",
+      height: "clamp(500px, 60vw, 950px)",
+      zIndex: 1,
+      pointerEvents: "none",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }}>
+      {/* Atmosphere Glow - Outer */}
+      <motion.div
+        animate={{ opacity: [0.2, 0.4, 0.2] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+        style={{
+          position: "absolute",
+          width: "120%",
+          height: "120%",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(86,183,255,0.2) 0%, transparent 70%)",
+          filter: "blur(60px)",
+          zIndex: -1
+        }}
+      />
+      
+      {/* Earth Body */}
+      <motion.div
+        initial={{ rotate: 0 }}
+        animate={{ rotate: 360 }}
+        transition={{ duration: 300, repeat: Infinity, ease: "linear" }}
+        style={{
+          width: "100%",
+          height: "100%",
+          borderRadius: "50%",
+          background: "url('https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?auto=format&fit=crop&w=1200&q=90') center/cover no-repeat",
+          boxShadow: "inset -80px -80px 160px rgba(0,0,0,0.98), inset 20px 20px 60px rgba(86,183,255,0.2), 0 0 100px rgba(86,183,255,0.1)",
+          position: "relative",
+          overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.03)"
+        }}
+      >
+        {/* Clouds Layer Overlay - Moving independently */}
+        <motion.div
+          animate={{ x: ["-8%", "8%"], y: ["-3%", "3%"], rotate: [0, 5, 0] }}
+          transition={{ duration: 50, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
+          style={{
+            position: "absolute",
+            inset: "-15%",
+            background: "url('https://www.transparenttextures.com/patterns/clouds.png')",
+            opacity: 0.3,
+            mixBlendMode: "screen",
+            filter: "brightness(1.8) contrast(1.2)"
+          }}
+        />
+        
+        {/* City Lights (Night side) */}
+        <div style={{
+          position: "absolute",
+          inset: 0,
+          background: "radial-gradient(circle at 80% 80%, rgba(245,166,35,0.1), transparent 40%)",
+          mixBlendMode: "overlay"
+        }} />
+      </motion.div>
+    </div>
+  );
+}
+
 // ── Nav ───────────────────────────────────────────────
 const NAV = [
   { id:"home",     label:"Home" },
   { id:"tips",     label:"Tech Tips" },
   { id:"habari",   label:"Tech Updates" },
+  { id:"prompts",  label:"Prompt Lab" },
   { id:"deals",    label:"Deals" },
   { id:"courses",  label:"Courses" },
   { id:"duka",     label:"Duka" },
   { id:"websites", label:"Websites" },
-  { id:"lab",      label:"⚗️ Prompt Lab" },
 ];
 
 const TYPED = ["Tech Tips kwa Kiswahili 💡","Courses za Kisasa 🎓","Tanzania Electronics Hub 🛍️","Websites Bora Bure 🌐","AI & ChatGPT Mastery 🤖"];
 
 // ── Static fallbacks (shown when Firestore is empty) ──
 const FALLBACK_TIPS = [
-  { id:"f1", type:"article", badge:"Android", title:"Android Hacks za kuongeza speed ya simu yako", thumb:"🚀", summary:"Settings ndogo zenye matokeo makubwa kwa battery, storage na performance ya simu yako.", readTime:"5 min", tags:["#android","#speed"], views:0, content:"Ongeza articles halisi kupitia Admin Panel!" },
-  { id:"f2", type:"article", badge:"AI", title:"AI Prompts bora kwa biashara na kazi Tanzania", thumb:"🤖", summary:"Andika captions, scripts na ideas kwa kutumia AI kwa Kiswahili haraka.", readTime:"8 min", tags:["#ai","#business"], views:0, content:"Ongeza articles halisi kupitia Admin Panel!" },
-  { id:"f3", type:"video", badge:"YouTube", title:"Jinsi ya kutumia ChatGPT kwa biashara yako", thumb:"▶️", channel:"TechKe Tanzania", channelImg:"🎙️", platform:"youtube", embedUrl:"https://www.youtube.com/embed/dQw4w9WgXcQ", views:0, duration:"12:30" },
+  { id:"f1", type:"article", badge:"Android", title:"Android Hacks za kuongeza speed ya simu yako", summary:"Settings ndogo zenye matokeo makubwa kwa battery, storage na performance ya simu yako.", readTime:"5 min", tags:["#android","#speed"], views:0, content:"Ongeza articles halisi kupitia Admin Panel!" },
+  { id:"f2", type:"article", badge:"AI", title:"AI Prompts bora kwa biashara na kazi Tanzania", summary:"Andika captions, scripts na ideas kwa kutumia AI kwa Kiswahili haraka.", readTime:"8 min", tags:["#ai","#business"], views:0, content:"Ongeza articles halisi kupitia Admin Panel!" },
+  { id:"f3", type:"video", badge:"YouTube", title:"Jinsi ya kutumia ChatGPT kwa biashara yako", channel:"TechKe Tanzania", channelImg:"🎙️", platform:"youtube", embedUrl:"https://www.youtube.com/embed/dQw4w9WgXcQ", views:0, duration:"12:30" },
 ];
+
 const FALLBACK_UPDATES = [
-  { id:"u1", type:"article", badge:"AI", category:"Artificial Intelligence", title:"AI tools mpya zinaingia sokoni", thumb:"🧠", summary:"Productivity, automation na content creation vinaendelea kubadilika kwa kasi.", readTime:"3 min", views:0, source:"TechCrunch" },
-  { id:"u2", type:"article", badge:"Android", category:"Mobile Tech", title:"Android market inazidi kuwa strong Afrika", thumb:"📱", summary:"Simu zenye value nzuri zinaendelea kuvutia buyers wengi zaidi Afrika Mashariki.", readTime:"4 min", views:0, source:"GSMArena" },
-  { id:"u3", type:"video", badge:"YouTube", title:"AI inabadilisha dunia — Hapa ndipo tulipo", thumb:"🔥", channel:"Fireship", channelImg:"🔥", platform:"youtube", embedUrl:"https://www.youtube.com/embed/dQw4w9WgXcQ", views:0, duration:"8:42" },
+  { id:"u1", type:"article", badge:"AI", category:"Artificial Intelligence", title:"AI tools mpya zinaingia sokoni", summary:"Productivity, automation na content creation vinaendelea kubadilika kwa kasi.", readTime:"3 min", views:0, source:"TechCrunch" },
+  { id:"u2", type:"article", badge:"Android", category:"Mobile Tech", title:"Android market inazidi kuwa strong Afrika", summary:"Simu zenye value nzuri zinaendelea kuvutia buyers wengi zaidi Afrika Mashariki.", readTime:"4 min", views:0, source:"GSMArena" },
+  { id:"u3", type:"video", badge:"YouTube", title:"AI inabadilisha dunia — Hapa ndipo tulipo", channel:"Fireship", channelImg:"🔥", platform:"youtube", embedUrl:"https://www.youtube.com/embed/dQw4w9WgXcQ", views:0, duration:"8:42" },
 ];
 const FALLBACK_DEALS = [
-  { id:"d1", icon:"🎨", name:"Canva Pro", domain:"canva.com", url:"https://canva.com", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", badge:"-60%", bt:"gold", meta:"Partner deal · Promo code", desc:"Templates, brand kit na magic tools kwa creators.", oldP:"$15/mo", newP:"$6/mo", save:"Save 60%", code:"STEA60", active:true },
-  { id:"d2", icon:"🛡️", name:"NordVPN", domain:"nordvpn.com", url:"https://nordvpn.com", bg:"linear-gradient(135deg,#1a56db,#0e9f6e)", badge:"Best Deal", bt:"blue", meta:"Affiliate + bonus months", desc:"Privacy, streaming access na speed nzuri.", oldP:"$12.99/mo", newP:"$3.19/mo", save:"75% off", code:"SAFE24", active:true },
-  { id:"d3", icon:"🎞️", name:"Gamma.app", domain:"gamma.app", url:"https://gamma.app", bg:"linear-gradient(135deg,#6366f1,#8b5cf6)", badge:"Free+Pro", bt:"purple", meta:"Referral link", desc:"Tengeneza presentations kwa AI ndani ya sekunde 30.", ref:true, active:true },
+  { id:"d1", name:"Canva Pro", domain:"canva.com", url:"https://canva.com", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", badge:"-60%", bt:"gold", meta:"Partner deal · Promo code", desc:"Templates, brand kit na magic tools kwa creators.", oldP:"$15/mo", newP:"$6/mo", save:"Save 60%", code:"STEA60", active:true },
+  { id:"d2", name:"NordVPN", domain:"nordvpn.com", url:"https://nordvpn.com", bg:"linear-gradient(135deg,#1a56db,#0e9f6e)", badge:"Best Deal", bt:"blue", meta:"Affiliate + bonus months", desc:"Privacy, streaming access na speed nzuri.", oldP:"$12.99/mo", newP:"$3.19/mo", save:"75% off", code:"SAFE24", active:true },
+  { id:"d3", name:"Gamma.app", domain:"gamma.app", url:"https://gamma.app", bg:"linear-gradient(135deg,#6366f1,#8b5cf6)", badge:"Free+Pro", bt:"purple", meta:"Referral link", desc:"Tengeneza presentations kwa AI ndani ya sekunde 30.", ref:true, active:true },
 ];
 const FALLBACK_COURSES = [
-  { id:"c1", free:true, emoji:"💻", title:"Computer Basics", desc:"Kwa beginner kabisa.", lessons:["Desktop na file management","Email na internet safety","Basic productivity tools"], price:"Bure · Start now", cta:"Anza Sasa Bure →", accent:"#00C48C", whatsapp:"https://wa.me/8619715852043" },
-  { id:"c2", free:false, emoji:"🤖", title:"AI & ChatGPT Mastery", desc:"Content, research, business workflows na monetization.", lessons:["Prompt systems","Business use cases","Client workflows"], price:"TZS 5,000/mwezi · M-Pesa", cta:"Jiunge Leo", whatsapp:"https://wa.me/8619715852043?text=Nataka+kujiunga+na+AI+Course" },
+  { 
+    id:"c1", free:true, badge: "Bestseller", level: "Beginner", instructorName: "STEA Team", duration: "4 Weeks", totalLessons: "12", studentsCount: "1.2k", rating: "4.9", language: "Kiswahili",
+    title:"Computer Basics kwa Beginner: Jifunze Kompyuta kwa Confidence", desc:"Jifunze kutumia computer kuanzia mwanzo kabisa kwa lugha ya Kiswahili rahisi na mifano ya vitendo.", 
+    shortPromise: "Mwanzo mpaka practical mastery ya teknolojia.",
+    lessons:["Desktop na file management","Email na internet safety","Basic productivity tools"], 
+    whatYouWillLearn: ["Matumizi ya Windows & Files", "Internet na Email Safety", "Microsoft Office Basics", "Usalama wa Data"],
+    whatYouWillGet: ["Cheti cha STEA", "Msaada wa Maisha", "Video za Mazoezi"],
+    suitableFor: ["Wanafunzi", "Wafanyakazi", "Wajasiriamali"],
+    price:"Bure", cta:"Anza Bure Sasa", accent:"#00C48C", 
+    adminWhatsAppNumber: "255768260933",
+    priceDisclaimerShort: "Hii ni kozi ya bure kwa jamii ya STEA."
+  },
+  { 
+    id:"c2", free:false, badge: "Hot", level: "Intermediate", instructorName: "STEA Expert", duration: "6 Weeks", totalLessons: "24", studentsCount: "850", rating: "5.0", language: "Kiswahili",
+    title:"Graphic Design Masterclass: Tengeneza Pesa kwa Ubunifu", desc:"Tumia Photoshop, Illustrator na Canva kuboresha kazi zako, biashara na kutengeneza content za kijanja.", 
+    shortPromise: "Jifunze kudesign kama pro na upate wateja.",
+    lessons:["Prompt systems","Business use cases","Client workflows"], 
+    whatYouWillLearn: ["Adobe Photoshop Mastery", "Logo Design Principles", "Social Media Graphics", "Branding Basics"],
+    whatYouWillGet: ["Pro Certificate", "Private WhatsApp Group", "Design Assets Access"],
+    suitableFor: ["Creators", "Business Owners", "Designers"],
+    price:"TZS 45,000", oldPrice: "TZS 100,000", newPrice: "TZS 45,000", cta:"Jiunge Sasa", 
+    adminWhatsAppNumber: "255768260933",
+    priceDisclaimerShort: "Malipo yanathibitishwa na STEA pekee."
+  },
+];
+const FALLBACK_PROMPTS = [
+  { id:"p1", category:"Biashara", title:"Business Plan Generator", prompt:"Nisaidie kuandika business plan ya biashara ya [WEKA BIASHARA YAKO HAPA] nchini Tanzania. Ijumuishe soko, gharama na namna ya kupata wateja." },
+  { id:"p2", category:"Content", title:"Social Media Caption", prompt:"Andika caption ya Instagram ya kuvutia kwa ajili ya [BIDHAA YAKO] inayolenga vijana wa Kitanzania. Tumia lugha ya kirafiki na emojis." },
+  { id:"p3", category:"Elimu", title:"Mwalimu wa AI", prompt:"Elezea dhana ya [WEKA DHANA HAPA] kwa mtoto wa miaka 10 kwa kutumia mifano rahisi ya maisha ya kila siku ya Kitanzania." },
 ];
 const WEBSITES = [
-  { icon:"🔍", name:"Perplexity AI", url:"https://perplexity.ai", bg:"linear-gradient(135deg,#1a1a2e,#16213e)", meta:"perplexity.ai", desc:"Mbadala bora wa Google — majibu ya moja kwa moja.", tags:["✅ Bure","AI Search"] },
-  { icon:"🎨", name:"Canva", url:"https://canva.com", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", meta:"canva.com", desc:"Tengeneza logos, CVs, posters bila ujuzi wa design.", tags:["✅ Bure + Pro","Design"] },
-  { icon:"🤖", name:"ChatGPT", url:"https://chatgpt.com", bg:"linear-gradient(135deg,#10a37f,#1a7f64)", meta:"chatgpt.com", desc:"AI inayojibu Kiswahili — inaandika CV, business plan.", tags:["✅ Bure + Plus","AI Assistant"] },
-  { icon:"🎞️", name:"Gamma.app", url:"https://gamma.app", bg:"linear-gradient(135deg,#6366f1,#8b5cf6)", meta:"gamma.app", desc:"Tengeneza presentation nzuri kwa AI ndani ya dakika moja.", tags:["✅ Bure","Presentations"] },
-  { icon:"📝", name:"Notion", url:"https://notion.so", bg:"linear-gradient(135deg,#2d2d2d,#374151)", meta:"notion.so", desc:"Notes, tasks, databases na wikis kwenye app moja.", tags:["✅ Bure","Productivity"] },
-  { icon:"🎯", name:"Figma", url:"https://figma.com", bg:"linear-gradient(135deg,#f24e1e,#ff7262)", meta:"figma.com", desc:"UI design, wireframes na prototypes kwa browser.", tags:["✅ Bure","UI/UX Design"] },
+  { name:"Perplexity AI", url:"https://perplexity.ai", bg:"linear-gradient(135deg,#1a1a2e,#16213e)", meta:"perplexity.ai", desc:"Mbadala bora wa Google — majibu ya moja kwa moja.", tags:["✅ Bure","AI Search"] },
+  { name:"Canva", url:"https://canva.com", bg:"linear-gradient(135deg,#00c4cc,#7d2ae8)", meta:"canva.com", desc:"Tengeneza logos, CVs, posters bila ujuzi wa design.", tags:["✅ Bure + Pro","Design"] },
+  { name:"ChatGPT", url:"https://chatgpt.com", bg:"linear-gradient(135deg,#10a37f,#1a7f64)", meta:"chatgpt.com", desc:"AI inayojibu Kiswahili — inaandika CV, business plan.", tags:["✅ Bure + Plus","AI Assistant"] },
+  { name:"Gamma.app", url:"https://gamma.app", bg:"linear-gradient(135deg,#6366f1,#8b5cf6)", meta:"gamma.app", desc:"Tengeneza presentation nzuri kwa AI ndani ya dakika moja.", tags:["✅ Bure","Presentations"] },
+  { name:"Notion", url:"https://notion.so", bg:"linear-gradient(135deg,#2d2d2d,#374151)", meta:"notion.so", desc:"Notes, tasks, databases na wikis kwenye app moja.", tags:["✅ Bure","Productivity"] },
+  { name:"Figma", url:"https://figma.com", bg:"linear-gradient(135deg,#f24e1e,#ff7262)", meta:"figma.com", desc:"UI design, wireframes na prototypes kwa browser.", tags:["✅ Bure","UI/UX Design"] },
 ];
 const PRODUCTS = [
-  { icon:"📱", badge:"Jumia Deal", name:"Samsung Galaxy A35", desc:"Camera, battery na storage zenye value nzuri.", price:"TZS 899,000", old:"TZS 949,000" },
-  { icon:"🎧", badge:"#1 Wiki", name:"Wireless Earbuds", desc:"Compact, stylish na nzuri kwa calls na music.", price:"TZS 65,000", old:"TZS 85,000" },
-  { icon:"⌚", badge:"New", name:"Smart Watch", desc:"Notifications, fitness na style wa kisasa.", price:"TZS 88,000", old:"TZS 109,000" },
+  { badge:"Jumia Deal", name:"Samsung Galaxy A35", desc:"Camera, battery na storage zenye value nzuri.", price:"TZS 899,000", old:"TZS 949,000" },
+  { badge:"#1 Wiki", name:"Wireless Earbuds", desc:"Compact, stylish na nzuri kwa calls na music.", price:"TZS 65,000", old:"TZS 85,000" },
+  { badge:"New", name:"Smart Watch", desc:"Notifications, fitness na style wa kisasa.", price:"TZS 88,000", old:"TZS 109,000" },
 ];
 const BS = {
   gold:{background:"rgba(245,166,35,.2)",color:G,border:"1px solid rgba(245,166,35,.3)"},
@@ -137,12 +240,51 @@ function LoadingScreen({done}){
 function StarCanvas(){
   const ref=useRef(null);
   useEffect(()=>{
-    const c=ref.current;if(!c)return;const ctx=c.getContext("2d");let stars=[],raf;
-    const resize=()=>{c.width=c.offsetWidth;c.height=c.offsetHeight;stars=Array.from({length:160},()=>({x:Math.random()*c.width,y:Math.random()*c.height,r:Math.random()*1.4+.3,a:Math.random()*.55+.2,s:Math.random()*.17+.04}));};
-    const draw=()=>{ctx.clearRect(0,0,c.width,c.height);stars.forEach(s=>{s.y+=s.s;if(s.y>c.height){s.y=-4;s.x=Math.random()*c.width;}ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,255,${s.a})`;ctx.fill();});raf=requestAnimationFrame(draw);};
-    resize();draw();window.addEventListener("resize",resize);return()=>{cancelAnimationFrame(raf);window.removeEventListener("resize",resize);};
+    const c=ref.current;if(!c)return;const ctx=c.getContext("2d");let stars=[],raf,shootingStars=[];
+    const resize=()=>{
+      c.width=c.offsetWidth;c.height=c.offsetHeight;
+      stars=Array.from({length:180},()=>({x:Math.random()*c.width,y:Math.random()*c.height,r:Math.random()*1.4+.3,a:Math.random()*.55+.2,s:Math.random()*.17+.04}));
+    };
+    const createShootingStar = () => {
+      shootingStars.push({
+        x: Math.random() * c.width,
+        y: Math.random() * c.height * 0.5,
+        len: Math.random() * 120 + 40,
+        speed: Math.random() * 15 + 8,
+        opacity: 1
+      });
+    };
+    const draw=()=>{
+      ctx.clearRect(0,0,c.width,c.height);
+      stars.forEach(s=>{
+        s.y+=s.s;if(s.y>c.height){s.y=-4;s.x=Math.random()*c.width;}
+        ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,255,${s.a})`;ctx.fill();
+      });
+      
+      if(Math.random() < 0.015) createShootingStar();
+      
+      shootingStars.forEach((s, i) => {
+        s.x += s.speed;
+        s.y += s.speed * 0.4;
+        s.opacity -= 0.015;
+        if(s.opacity <= 0) {
+          shootingStars.splice(i, 1);
+          return;
+        }
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.len, s.y - s.len * 0.4);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${s.opacity})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+      
+      raf=requestAnimationFrame(draw);
+    };
+    resize();draw();window.addEventListener("resize",resize);
+    return()=>{cancelAnimationFrame(raf);window.removeEventListener("resize",resize);};
   },[]);
-  return <canvas ref={ref} style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:.35,pointerEvents:"none"}}/>;
+  return <canvas ref={ref} style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:.45,pointerEvents:"none"}}/>;
 }
 
 function TypedText(){
@@ -164,13 +306,34 @@ function TiltCard({children,style={}}){
   return(<div ref={ref} onMouseMove={e=>apply(e.clientX,e.clientY)} onMouseLeave={reset} onTouchStart={e=>{const t=e.touches[0];apply(t.clientX,t.clientY);}} onTouchMove={e=>{const t=e.touches[0];apply(t.clientX,t.clientY);}} onTouchEnd={()=>setTimeout(reset,300)} style={{borderRadius:20,border:"1px solid rgba(255,255,255,.08)",background:CB,overflow:"hidden",transition:"border-color .3s,box-shadow .3s",boxShadow:"0 12px 36px rgba(0,0,0,.2)",transformStyle:"preserve-3d",...style}}>{children}</div>);
 }
 
-function Thumb({bg,icon,name,domain,badge,bt}){
-  return(<div style={{position:"relative",minHeight:180,background:bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:"36px 20px 20px",overflow:"hidden",borderBottom:"1px solid rgba(255,255,255,.07)"}}>
-    <div style={{position:"absolute",inset:0,background:"radial-gradient(circle at 30% 30%,rgba(255,255,255,.12),transparent 60%)",pointerEvents:"none"}}/>
+function Thumb({bg,iconUrl,name,domain,badge,bt,imageUrl,id}){
+  return(<div style={{position:"relative",aspectRatio:"16/9",background:"rgba(255,255,255,.03)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:"36px 20px 20px",overflow:"hidden",borderBottom:"1px solid rgba(255,255,255,.07)"}}>
+    {imageUrl ? (
+      <img 
+        src={imageUrl} 
+        alt={name} 
+        referrerPolicy="no-referrer"
+        style={{width:"100%",height:"100%",objectFit:"cover",position:"absolute",inset:0}}
+        onError={(e) => {
+          e.target.src = `https://picsum.photos/seed/stea-${id || name}/800/450`;
+        }}
+      />
+    ) : (
+      <>
+        <div style={{position:"absolute",inset:0,background:bg,pointerEvents:"none"}}/>
+        <div style={{position:"absolute",inset:0,background:"radial-gradient(circle at 30% 30%,rgba(255,255,255,.12),transparent 60%)",pointerEvents:"none"}}/>
+      </>
+    )}
     {badge&&<div style={{position:"absolute",top:10,right:10,padding:"5px 12px",borderRadius:999,fontSize:11,fontWeight:900,zIndex:5,...(BS[bt]||BS.gray)}}>{badge}</div>}
-    <div style={{fontSize:46,zIndex:2,filter:"drop-shadow(0 4px 16px rgba(0,0,0,.5))"}}>{icon}</div>
-    <div style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15,fontWeight:800,color:"rgba(255,255,255,.92)",zIndex:2}}>{name}</div>
-    <span style={{fontSize:11,fontWeight:700,padding:"4px 12px",borderRadius:99,background:"rgba(255,255,255,.15)",color:"#fff",zIndex:2}}>{domain}</span>
+    {!imageUrl && (
+      <>
+        <div style={{width:60,height:60,borderRadius:16,overflow:"hidden",display:"grid",placeItems:"center",background:"rgba(255,255,255,.1)",zIndex:2,backdropFilter:"blur(10px)"}}>
+          {iconUrl && <img src={iconUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} referrerPolicy="no-referrer" />}
+        </div>
+        <div style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15,fontWeight:800,color:"rgba(255,255,255,.92)",zIndex:2,textAlign:"center"}}>{name}</div>
+        <span style={{fontSize:11,fontWeight:700,padding:"4px 12px",borderRadius:99,background:"rgba(255,255,255,.15)",color:"#fff",zIndex:2}}>{domain}</span>
+      </>
+    )}
   </div>);
 }
 
@@ -183,7 +346,7 @@ function PushBtn({children,onClick,style={}}){
 }
 
 function GoldBtn({children,onClick,style={}}){
-  return(<button onClick={onClick} style={{border:"none",cursor:"pointer",borderRadius:14,padding:"11px 20px",fontWeight:900,color:"#111",background:`linear-gradient(135deg,${G},${G2})`,fontSize:14,display:"inline-flex",alignItems:"center",gap:8,transition:"transform .2s,box-shadow .2s",...style}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 14px 28px rgba(245,166,35,.3)`;}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>{children}</button>);
+  return(<button onClick={onClick} style={{border:"none",cursor:"pointer",borderRadius:14,padding:"11px 20px",fontWeight:900,color:"#111",background:`linear-gradient(135deg,${G},${G2})`,fontSize:14,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",...style}} onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px) scale(1.05)";e.currentTarget.style.boxShadow=`0 16px 32px rgba(245,166,35,.4)`;}} onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>{children}</button>);
 }
 
 function CopyBtn({code}){
@@ -198,21 +361,46 @@ function SHead({title,hi,copy}){
 const W=({children})=><div style={{maxWidth:1180,margin:"0 auto",padding:"0 14px"}}>{children}</div>;
 
 // ── Skeleton loader ───────────────────────────────────
-function Skeleton(){
-  return(<div style={{borderRadius:20,border:"1px solid rgba(255,255,255,.06)",background:CB,overflow:"hidden"}}>
-    <div style={{height:140,background:"linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.08) 50%,rgba(255,255,255,.04) 75%)",backgroundSize:"200% 100%",animation:"shimmer 1.5s infinite"}}/>
-    <div style={{padding:18}}><div style={{height:16,borderRadius:8,background:"rgba(255,255,255,.06)",marginBottom:10,width:"70%"}}/><div style={{height:12,borderRadius:8,background:"rgba(255,255,255,.04)",width:"100%",marginBottom:8}}/><div style={{height:12,borderRadius:8,background:"rgba(255,255,255,.04)",width:"60%"}}/></div>
-  </div>);
+function Skeleton({ type = "card" }) {
+  if (type === "prompt") {
+    return (
+      <div style={{ borderRadius: 24, border: "1px solid rgba(255,255,255,.06)", background: CB, overflow: "hidden", height: 320 }}>
+        <div style={{ height: "100%", background: "linear-gradient(90deg,rgba(255,255,255,.02) 25%,rgba(255,255,255,.05) 50%,rgba(255,255,255,.02) 75%)", backgroundSize: "200% 100%", animation: "shimmer 2s infinite" }} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.06)", background: CB, overflow: "hidden" }}>
+      <div style={{ height: 160, background: "linear-gradient(90deg,rgba(255,255,255,.03) 25%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.03) 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.8s infinite" }} />
+      <div style={{ padding: 20 }}>
+        <div style={{ height: 18, borderRadius: 9, background: "rgba(255,255,255,.05)", marginBottom: 12, width: "80%" }} />
+        <div style={{ height: 12, borderRadius: 6, background: "rgba(255,255,255,.03)", width: "100%", marginBottom: 8 }} />
+        <div style={{ height: 12, borderRadius: 6, background: "rgba(255,255,255,.03)", width: "60%" }} />
+      </div>
+    </div>
+  );
 }
 
 // ── Article modal ─────────────────────────────────────
-export function getVideoThumb(item){ return item.thumb||"▶️"; }
-export function ArticleModal({article,onClose}){
+function ArticleModal({article,onClose}){
   useEffect(()=>{document.body.style.overflow="hidden";return()=>{document.body.style.overflow="";};});
   return(<div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,zIndex:700,background:"rgba(4,5,9,.88)",backdropFilter:"blur(18px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"16px",overflowY:"auto"}}>
     <div style={{width:"min(780px,100%)",borderRadius:28,border:"1px solid rgba(255,255,255,.12)",background:"rgba(12,14,22,.98)",boxShadow:"0 32px 80px rgba(0,0,0,.55)",overflow:"hidden",position:"relative",maxHeight:"90vh",overflowY:"auto"}}>
-      <button onClick={onClose} style={{position:"sticky",top:16,left:"calc(100% - 54px)",display:"block",zIndex:10,width:38,height:38,borderRadius:12,border:"1px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.08)",color:"#fff",cursor:"pointer",fontSize:18,marginLeft:"auto",marginRight:16}}>✕</button>
-      <div style={{padding:"0 32px 36px"}}>
+      <button onClick={onClose} style={{position:"sticky",top:16,left:"calc(100% - 54px)",display:"block",zIndex:10,width:38,height:38,borderRadius:12,border:"1px solid rgba(255,255,255,.1)",background:"rgba(12,14,22,.8)",color:"#fff",cursor:"pointer",fontSize:18,marginLeft:"auto",marginRight:16,backdropFilter:"blur(10px)"}}>✕</button>
+      {article.imageUrl && (
+        <div style={{width:"100%",aspectRatio:"16/9",overflow:"hidden",borderBottom:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.03)"}}>
+          <img 
+            src={article.imageUrl} 
+            alt={article.title} 
+            referrerPolicy="no-referrer" 
+            style={{width:"100%",height:"100%",objectFit:"cover"}}
+            onError={(e) => {
+              e.target.src = `https://picsum.photos/seed/stea-${article.id}/1200/675`;
+            }}
+          />
+        </div>
+      )}
+      <div style={{padding:article.imageUrl?"24px 32px 36px":"0 32px 36px"}}>
         <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
           <span style={{padding:"5px 12px",borderRadius:999,fontSize:12,fontWeight:800,...BS.gold}}>{article.badge}</span>
           {article.readTime&&<span style={{fontSize:13,color:"rgba(255,255,255,.45)"}}>{article.readTime} read</span>}
@@ -230,7 +418,7 @@ export function ArticleModal({article,onClose}){
 }
 
 // ── Video modal ───────────────────────────────────────
-export function VideoModal({video,onClose}){
+function VideoModal({video,onClose}){
   useEffect(()=>{document.body.style.overflow="hidden";return()=>{document.body.style.overflow="";};});
   return(<div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,zIndex:700,background:"rgba(4,5,9,.92)",backdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
     <div style={{width:"min(860px,100%)",borderRadius:24,overflow:"hidden",border:"1px solid rgba(255,255,255,.12)",boxShadow:"0 32px 80px rgba(0,0,0,.6)",position:"relative"}}>
@@ -239,7 +427,7 @@ export function VideoModal({video,onClose}){
         <iframe src={(video.embedUrl||"")+"?autoplay=1"} style={{position:"absolute",inset:0,width:"100%",height:"100%",border:"none"}} allow="autoplay;encrypted-media" allowFullScreen title={video.title}/>
       </div>
       <div style={{padding:"18px 20px",background:"rgba(12,14,22,.98)"}}>
-        <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}><span style={{fontSize:26}}>{video.channelImg||"🎬"}</span><div><div style={{fontWeight:800,fontSize:15}}>{video.channel}</div><div style={{fontSize:12,color:"rgba(255,255,255,.45)"}}>👁 {fmtViews(video.views)} views</div></div></div>
+        <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:15}}>{video.channel}</div><div style={{fontSize:12,color:"rgba(255,255,255,.45)"}}>👁 {fmtViews(video.views)} views</div></div></div>
         <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:18,letterSpacing:"-.03em",margin:0}}>{video.title}</h3>
       </div>
     </div>
@@ -253,15 +441,24 @@ function ArticleCard({item,onRead,collection:col}){
     onRead(item);
   };
   return(<TiltCard>
-    {item.thumbImg&&<div style={{height:190,overflow:"hidden",borderBottom:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
-      <img src={item.thumbImg} alt={item.title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}} onError={e=>{e.target.parentElement.style.display="none";}}/>
-    </div>}
-    <div style={{padding:"14px 18px 10px",display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,rgba(245,166,35,.1),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",minHeight:item.thumbImg?50:90}}>
-      <div style={{fontSize:item.thumbImg?32:48,flexShrink:0,filter:"drop-shadow(0 4px 12px rgba(0,0,0,.5))"}}>{item.thumb||"📝"}</div>
-      <div>
-        <span style={{display:"inline-block",padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:800,...BS.gold}}>{item.badge}</span>
-        <div style={{fontSize:12,color:"rgba(255,255,255,.4)",marginTop:4}}>{item.readTime||"5 min"} read</div>
-      </div>
+    <div style={{padding:item.imageUrl?0:"18px 18px 10px",display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,rgba(245,166,35,.1),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",aspectRatio:item.imageUrl?"16/9":"auto",minHeight:item.imageUrl?0:90,overflow:"hidden",position:"relative"}}>
+      {item.imageUrl ? (
+        <img 
+          src={item.imageUrl} 
+          alt={item.title} 
+          referrerPolicy="no-referrer" 
+          style={{width:"100%",height:"100%",objectFit:"cover",position:"absolute",inset:0}}
+          onError={(e) => {
+            e.target.src = `https://picsum.photos/seed/stea-${item.id}/800/450`;
+          }}
+        />
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"flex-start",width:"100%",padding:"20px"}}>
+          <span style={{display:"inline-block",padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:800,...BS.gold}}>{item.badge}</span>
+          <div style={{fontSize:12,color:"rgba(255,255,255,.4)",marginTop:8}}>{item.readTime||"5 min"} read</div>
+        </div>
+      )}
+      {item.imageUrl && <div style={{position:"absolute",top:12,left:12,padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:800,...BS.gold,backdropFilter:"blur(8px)"}}>{item.badge}</div>}
     </div>
     <div style={{padding:18}}>
       <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:18,margin:"0 0 9px",letterSpacing:"-.03em",lineHeight:1.25}}>{item.title}</h3>
@@ -283,7 +480,21 @@ function VideoCard({item,onPlay,collection:col}){
     onPlay(item);
   };
   return(<TiltCard>
-    <div onClick={handlePlay} style={{position:"relative",paddingTop:"56%",background:"linear-gradient(135deg,rgba(245,166,35,.12),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",cursor:"pointer",overflow:"hidden"}}>
+    <div onClick={handlePlay} style={{position:"relative",aspectRatio:"16/9",background:"rgba(255,255,255,.03)",cursor:"pointer",overflow:"hidden"}}>
+      {item.imageUrl ? (
+        <img 
+          src={item.imageUrl} 
+          alt={item.title} 
+          referrerPolicy="no-referrer" 
+          style={{width:"100%",height:"100%",objectFit:"cover",position:"absolute",inset:0}}
+          onError={(e) => {
+            e.target.src = `https://picsum.photos/seed/stea-${item.id}/800/450`;
+          }}
+        />
+      ) : (
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(135deg,rgba(245,166,35,.12),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)"}}/>
+      )}
+      {item.imageUrl && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.3)"}}/>}
       <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div style={{width:60,height:60,borderRadius:"50%",background:"rgba(245,166,35,.92)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#111",fontWeight:900,boxShadow:`0 0 0 10px rgba(245,166,35,.18)`}}>▶</div>
       </div>
@@ -291,7 +502,7 @@ function VideoCard({item,onPlay,collection:col}){
       <div style={{position:"absolute",bottom:10,right:10,padding:"4px 8px",borderRadius:8,fontSize:11,fontWeight:700,background:"rgba(0,0,0,.7)",color:"#fff"}}>{item.duration}</div>
     </div>
     <div style={{padding:16}}>
-      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:10}}><span style={{fontSize:22}}>{item.channelImg||"🎬"}</span><div><div style={{fontWeight:800,fontSize:13}}>{item.channel}</div><div style={{fontSize:11,color:"rgba(255,255,255,.4)"}}>👁 {fmtViews(item.views)} views</div></div></div>
+      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:10}}><div><div style={{fontWeight:800,fontSize:13}}>{item.channel}</div><div style={{fontSize:11,color:"rgba(255,255,255,.4)"}}>👁 {fmtViews(item.views)} views</div></div></div>
       <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:16,margin:"0 0 12px",letterSpacing:"-.02em",lineHeight:1.3}}>{item.title}</h3>
       <GoldBtn onClick={handlePlay} style={{fontSize:12,padding:"8px 14px",width:"100%",justifyContent:"center"}}>▶ Tazama Sasa</GoldBtn>
     </div>
@@ -428,7 +639,7 @@ function UserChip({user,onLogout,onAdmin}){
 // LIVE DATA PAGES
 // ════════════════════════════════════════════════════
 function TipsPage(){
-  const{docs,loading}=useCollection("tips");
+  const{docs,loading}=useCollection("tips", "createdAt", 30);
   const[art,setArt]=useState(null);
   const[vid,setVid]=useState(null);
 
@@ -444,7 +655,7 @@ function TipsPage(){
       {loading?[1,2,3].map(i=><Skeleton key={i}/>):articles.map(item=><ArticleCard key={item.id} item={item} onRead={setArt} collection="tips"/>)}
     </div>
     {videos.length>0&&<>
-      <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:20,letterSpacing:"-.03em",margin:"0 0 16px"}}>🎬 Videos <span style={{color:G}}>za Tech</span></h3>
+      <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:20,letterSpacing:"-.03em",margin:"0 0 16px"}}>Videos <span style={{color:G}}>za Tech</span></h3>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:22}}>
         {videos.map(item=><VideoCard key={item.id} item={item} onPlay={setVid} collection="tips"/>)}
       </div>
@@ -453,7 +664,7 @@ function TipsPage(){
 }
 
 function UpdatesPage(){
-  const{docs,loading}=useCollection("updates");
+  const{docs,loading}=useCollection("updates", "createdAt", 30);
   const[art,setArt]=useState(null);
   const[vid,setVid]=useState(null);
 
@@ -468,9 +679,16 @@ function UpdatesPage(){
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:22,marginBottom:40}}>
       {loading?[1,2,3].map(i=><Skeleton key={i}/>):articles.map(item=>(
         <TiltCard key={item.id}>
-          <div style={{padding:"16px 18px 10px",background:"linear-gradient(135deg,rgba(245,166,35,.08),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",display:"flex",gap:12,alignItems:"flex-start"}}>
-            <div style={{fontSize:42,filter:"drop-shadow(0 4px 12px rgba(0,0,0,.5))"}}>{item.thumb}</div>
-            <div><span style={{display:"inline-block",padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:800,...BS.gold}}>{item.badge}</span><div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:4}}>{item.category}</div></div>
+          <div style={{padding:item.imageUrl?0:"16px 18px 10px",background:"linear-gradient(135deg,rgba(245,166,35,.08),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",display:"flex",gap:12,alignItems:"flex-start",aspectRatio:item.imageUrl?"16/9":"auto",minHeight:item.imageUrl?0:90,overflow:"hidden",position:"relative"}}>
+            {item.imageUrl ? (
+              <img src={item.imageUrl} alt={item.title} referrerPolicy="no-referrer" style={{width:"100%",height:"100%",objectFit:"cover",position:"absolute",inset:0}}/>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"flex-start",width:"100%",padding:"20px"}}>
+                <span style={{display:"inline-block",padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:800,...BS.gold}}>{item.badge}</span>
+                <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:8}}>{item.category}</div>
+              </div>
+            )}
+            {item.imageUrl && <div style={{position:"absolute",top:12,left:12,padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:800,...BS.gold,backdropFilter:"blur(8px)"}}>{item.badge}</div>}
           </div>
           <div style={{padding:18}}>
             <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:17,margin:"0 0 9px",letterSpacing:"-.03em",lineHeight:1.25}}>{item.title}</h3>
@@ -486,7 +704,7 @@ function UpdatesPage(){
       ))}
     </div>
     {videos.length>0&&<>
-      <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:20,letterSpacing:"-.03em",margin:"0 0 16px"}}>🎬 Tech <span style={{color:G}}>Videos</span></h3>
+      <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:20,letterSpacing:"-.03em",margin:"0 0 16px"}}>Tech <span style={{color:G}}>Videos</span></h3>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:22}}>
         {videos.map(item=><VideoCard key={item.id} item={item} onPlay={setVid} collection="updates"/>)}
       </div>
@@ -495,7 +713,7 @@ function UpdatesPage(){
 }
 
 function DealsPage(){
-  const{docs,loading}=useCollection("deals","createdAt");
+  const{docs,loading}=useCollection("deals","createdAt", 30);
   const deals=(docs.filter(d=>d.active!==false).length>0?docs.filter(d=>d.active!==false):FALLBACK_DEALS);
 
   return(<section style={{padding:"26px 0"}}><W>
@@ -503,22 +721,16 @@ function DealsPage(){
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:24}}>
       {loading?[1,2,3].map(i=><Skeleton key={i}/>):deals.map((d,i)=>(
         <TiltCard key={d.id||i}>
-          <Thumb bg={d.bg} icon={d.icon} name={d.name} domain={d.domain} badge={d.badge} bt={d.bt}/>
+          <Thumb bg={d.bg} name={d.name} domain={d.domain} badge={d.badge} bt={d.bt} imageUrl={d.imageUrl}/>
           <div style={{padding:"18px 18px 20px",display:"flex",gap:14,alignItems:"flex-start"}}>
-            <div style={{fontSize:30,flexShrink:0,marginTop:3}}>{d.icon}</div>
             <div style={{flex:1}}>
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-                <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:19,margin:"0 0 4px",letterSpacing:"-.03em"}}>{d.name}</h3>
-                <div style={{borderRadius:999,padding:"4px 8px",border:"1px solid rgba(0,196,140,.3)",background:"rgba(0,196,140,.1)",color:"#00C48C",fontSize:9,fontWeight:900,display:"flex",alignItems:"center",gap:3,whiteSpace:"nowrap"}}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg> Verified
-                </div>
-              </div>
+              <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:19,margin:"0 0 4px",letterSpacing:"-.03em"}}>{d.name}</h3>
               <div style={{fontSize:12,color:"rgba(255,255,255,.4)",marginBottom:8}}>{d.meta}</div>
               <p style={{color:"rgba(255,255,255,.68)",fontSize:14,lineHeight:1.7,margin:0}}>{d.desc}</p>
               {d.oldP&&<div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",margin:"10px 0 12px"}}><span style={{color:"rgba(255,255,255,.42)",textDecoration:"line-through",fontSize:14,fontWeight:700}}>{d.oldP}</span><span style={{color:G,fontSize:20,fontWeight:900}}>{d.newP}</span><span style={{padding:"5px 10px",borderRadius:999,fontSize:11,fontWeight:900,background:"rgba(245,166,35,.12)",color:G,border:"1px solid rgba(245,166,35,.18)"}}>{d.save}</span></div>}
               {d.code&&<div style={{marginTop:12,padding:"12px 14px",borderRadius:13,border:"1px dashed rgba(245,166,35,.3)",background:"rgba(245,166,35,.07)"}}><div style={{fontSize:10,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",color:"rgba(255,255,255,.38)",marginBottom:6}}>🎫 Promo Code</div><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}><strong style={{fontSize:18,fontWeight:900,color:G,letterSpacing:".06em"}}>{d.code}</strong><CopyBtn code={d.code}/></div></div>}
               {d.ref&&<div style={{background:"rgba(86,183,255,.07)",border:"1px solid rgba(86,183,255,.2)",borderRadius:12,padding:"11px 13px",marginTop:10,display:"flex",alignItems:"flex-start",gap:9}}><span style={{fontSize:18,flexShrink:0}}>🔗</span><div style={{fontSize:12,color:"rgba(255,255,255,.5)",lineHeight:1.55}}><strong style={{display:"block",color:"#56b7ff",fontSize:13,marginBottom:2}}>Referral Link — Hakuna Promo Code</strong>Bonyeza usajili kupitia link yangu napata commission bila gharama kwako.</div></div>}
-              <div style={{marginTop:14}}><GoldBtn onClick={()=>window.open(d.url,"_blank")}>{d.icon} Pata Deal →</GoldBtn></div>
+              <div style={{marginTop:14}}><GoldBtn onClick={()=>window.open(d.url,"_blank")}>Pata Deal →</GoldBtn></div>
             </div>
           </div>
         </TiltCard>
@@ -527,50 +739,399 @@ function DealsPage(){
   </W></section>);
 }
 
-function CoursesPage(){
-  const{docs,loading}=useCollection("courses","createdAt");
-  const courses=docs.length>0?docs:FALLBACK_COURSES;
+function CoursesPage({ goPage }){
+  const { docs, loading } = useCollection("courses", "createdAt", 30);
+  const courses = docs.length > 0 ? docs : FALLBACK_COURSES;
 
-  return(<section style={{padding:"26px 0"}}><W>
-    <SHead title="Kozi za" hi="Kisasa" copy="Mwanzo mpaka practical mastery kwa beginner, creator na mtu anayejenga career."/>
-    <div style={{display:"grid",gap:20}}>
-      {loading?[1,2].map(i=><Skeleton key={i}/>):courses.map((c,i)=>(
-        <TiltCard key={c.id||i} style={{display:"grid",gridTemplateColumns:"clamp(170px,22%,250px) 1fr",minHeight:220}}>
-          <div style={{position:"relative",padding:20,display:"flex",alignItems:"flex-end",borderRight:"1px solid rgba(255,255,255,.07)",background:c.free?"radial-gradient(circle at top right,rgba(255,255,255,.1),transparent 24%),linear-gradient(135deg,rgba(0,196,140,.22),rgba(255,255,255,.04))":"radial-gradient(circle at top right,rgba(255,255,255,.1),transparent 24%),linear-gradient(135deg,rgba(245,166,35,.22),rgba(255,255,255,.04))"}}>
-            <div style={{position:"absolute",left:14,top:14,padding:"6px 12px",borderRadius:999,fontSize:11,fontWeight:900,border:"1px solid rgba(255,255,255,.08)",background:c.free?"rgba(0,196,140,.14)":"rgba(245,166,35,.14)",color:c.free?"#00C48C":G}}>{c.free?"🆓 BURE":"⭐ PAID"}</div>
-            <div><div style={{fontSize:50}}>{c.emoji}</div><div style={{marginTop:8,fontSize:12,color:"rgba(255,255,255,.75)",fontWeight:700}}>{c.free?"Anza bila gharama.":"Lipa kwa M-Pesa."}</div></div>
-          </div>
-          <div style={{padding:20,display:"flex",flexDirection:"column",gap:11}}>
-            <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:21,margin:0,letterSpacing:"-.03em"}}>{c.title}</h3>
-            <p style={{color:"rgba(255,255,255,.68)",fontSize:14,lineHeight:1.75,margin:0}}>{c.desc}</p>
-            <div style={{display:"grid",gap:7}}>
-              {(c.lessons||[]).map((l,j)=>(<div key={j} style={{display:"flex",gap:9,alignItems:"center",padding:"8px 11px",borderRadius:11,background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.06)",color:"rgba(255,255,255,.68)",fontSize:14}}><span style={{width:22,height:22,borderRadius:999,display:"grid",placeItems:"center",background:"rgba(245,166,35,.13)",color:G,fontSize:11,fontWeight:900,flexShrink:0}}>{j+1}</span>{l}</div>))}
+  return (
+    <section style={{ padding: "40px 0" }}>
+      <W>
+        <SHead 
+          title="Jifunze Skills" 
+          hi="Zinazolipa Sana Mtandaoni" 
+          copy="Kutoka kwa wataalamu wa teknolojia Tanzania — Mwaka 2026 ni mwaka wako wa kupata pesa kupitia skills za teknolojia."
+        />
+
+        {/* Courses List */}
+        <div style={{ display: "grid", gap: 32, marginBottom: 80 }}>
+          {loading ? [1, 2].map(i => <Skeleton key={i} />) : courses.map((c, i) => {
+            return (
+              <TiltCard key={c.id || i} style={{ display: "grid", gridTemplateColumns: "clamp(250px, 35%, 400px) 1fr", minHeight: 400, overflow: "hidden" }}>
+                {/* Left: Image & Badge */}
+                <div style={{ position: "relative", background: c.imageUrl ? `url(${c.imageUrl}) center/cover no-repeat` : "rgba(255,255,255,.05)", borderRight: "1px solid rgba(255,255,255,.05)" }}>
+                  {!c.imageUrl && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", opacity: .1 }}><BookOpen size={64} /></div>}
+                  {c.badge && (
+                    <div style={{ position: "absolute", top: 20, left: 20, background: G, color: "#000", padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1, zIndex: 2 }}>
+                      {c.badge}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Content */}
+                <div style={{ padding: "32px 40px", display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, color: G, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+                        <Award size={14} />
+                        <span>{c.level || "Beginner"}</span>
+                        <span style={{ opacity: .3 }}>•</span>
+                        <Users size={14} />
+                        <span>{c.studentsCount || "100+"} Wanafunzi</span>
+                        <span style={{ opacity: .3 }}>•</span>
+                        <Star size={14} fill={G} />
+                        <span>{c.rating || "5.0"}</span>
+                      </div>
+                      <h3 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 32, margin: 0, letterSpacing: "-.03em", lineHeight: 1.2 }}>{c.title}</h3>
+                      <p style={{ color: G, fontSize: 16, fontWeight: 700, marginTop: 6, letterSpacing: 0.5 }}>{c.shortPromise || "Jifunze stadi za kisasa."}</p>
+                    </div>
+                    <div style={{ textAlign: "right", minWidth: 120 }}>
+                      {c.oldPrice && <div style={{ fontSize: 14, color: "rgba(255,255,255,.3)", textDecoration: "line-through", marginBottom: 2 }}>{c.oldPrice}</div>}
+                      <div style={{ fontSize: 28, fontWeight: 900, color: "#fff" }}>{c.newPrice || c.price}</div>
+                    </div>
+                  </div>
+
+                  <p style={{ color: "rgba(255,255,255,.6)", fontSize: 16, lineHeight: 1.7, margin: 0 }}>{c.desc}</p>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, padding: "20px 0", borderTop: "1px solid rgba(255,255,255,.05)", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+                    {/* What you will learn */}
+                    <div>
+                      <h5 style={{ fontSize: 13, color: G, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Utajifunza Nini:</h5>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {(c.whatYouWillLearn || ["Skill 1", "Skill 2"]).slice(0, 4).map((item, idx) => (
+                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "rgba(255,255,255,.8)" }}>
+                            <Check size={14} color={G} />
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Requirements / Suitable For */}
+                    <div>
+                      <h5 style={{ fontSize: 13, color: G, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Inafaa Kwa:</h5>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {(c.suitableFor || ["Wanafunzi", "Wajasiriamali"]).slice(0, 4).map((item, idx) => (
+                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "rgba(255,255,255,.8)" }}>
+                            <div style={{ width: 4, height: 4, borderRadius: "50%", background: G }} />
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
+                    <div style={{ display: "flex", gap: 24 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,.4)", textTransform: "uppercase", letterSpacing: 1 }}>Mwalimu</span>
+                        <span style={{ fontSize: 15, fontWeight: 700 }}>{c.instructorName || "STEA Team"}</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,.4)", textTransform: "uppercase", letterSpacing: 1 }}>Muda</span>
+                        <span style={{ fontSize: 15, fontWeight: 700 }}>{c.duration || "4 Weeks"}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <GoldBtn 
+                        onClick={() => goPage("course-detail", c)} 
+                        style={{ 
+                          padding: "14px 32px", 
+                          fontSize: 16,
+                          boxShadow: `0 8px 24px ${G}33`
+                        }}
+                      >
+                        Anza Kujifunza Sasa →
+                      </GoldBtn>
+                    </div>
+                  </div>
+                </div>
+              </TiltCard>
+            );
+          })}
+        </div>
+
+        {/* Trust Section: Why STEA? */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 24, marginBottom: 100 }}>
+          {[
+            { icon: <Users color={G} />, title: "10,000+ Wanafunzi", desc: "Jamii kubwa ya teknolojia." },
+            { icon: <Award color={G} />, title: "Vyeti Rasmi", desc: "Utambulisho wa ujuzi wako." },
+            { icon: <ShieldCheck color={G} />, title: "Malipo Salama", desc: "Yanasimamiwa na STEA." },
+            { icon: <Zap color={G} />, title: "Ujuzi wa Vitendo", desc: "Sio nadharia, ni kazi." }
+          ].map((item, i) => (
+            <div key={i} style={{ padding: 32, borderRadius: 24, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.05)", textAlign: "center", transition: "transform .3s ease" }}>
+              <div style={{ width: 56, height: 56, borderRadius: 16, background: "rgba(245,166,35,.08)", display: "grid", placeItems: "center", margin: "0 auto 20px" }}>{item.icon}</div>
+              <h4 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>{item.title}</h4>
+              <p style={{ fontSize: 14, color: "rgba(255,255,255,.4)", lineHeight: 1.5, margin: 0 }}>{item.desc}</p>
             </div>
-            <div style={{marginTop:"auto",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-              <div style={{fontSize:14,color:"rgba(255,255,255,.65)",fontWeight:700}}><strong style={{color:G}}>{c.price}</strong></div>
-              <GoldBtn onClick={()=>{ if(c.whatsapp)window.open(c.whatsapp,"_blank"); }} style={c.accent?{background:`linear-gradient(135deg,${c.accent},#63f0c1)`,borderRadius:12}:{borderRadius:12}}>{c.cta||"Jiunge Leo"}</GoldBtn>
+          ))}
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function CourseDetailPage({ course: c, goPage }) {
+  if (!c) return <div style={{ padding: 100, textAlign: "center" }}>Course not found. <button onClick={() => goPage("courses")}>Back to Courses</button></div>;
+
+  const isFree = c.free || (c.newPrice && c.newPrice.toLowerCase().includes("bure")) || (c.price && c.price.toLowerCase().includes("bure"));
+  const ctaText = c.cta || (isFree ? "Anza Bure Sasa" : "Jiunge na Kozi Hii Sasa");
+
+  const testimonials = [];
+  if (c.testimonial1Text) testimonials.push({ name: c.testimonial1Name || "Mwanafunzi wa STEA", role: c.testimonial1Role || "Mwanafunzi", text: c.testimonial1Text });
+  if (c.testimonial2Text) testimonials.push({ name: c.testimonial2Name || "Mwanafunzi wa STEA", role: c.testimonial2Role || "Mwanafunzi", text: c.testimonial2Text });
+  if (c.testimonial3Text) testimonials.push({ name: c.testimonial3Name || "Mwanafunzi wa STEA", role: c.testimonial3Role || "Mwanafunzi", text: c.testimonial3Text });
+
+  const faqs = [];
+  if (c.faq1Question && c.faq1Answer) faqs.push({ q: c.faq1Question, a: c.faq1Answer });
+  if (c.faq2Question && c.faq2Answer) faqs.push({ q: c.faq2Question, a: c.faq2Answer });
+  if (c.faq3Question && c.faq3Answer) faqs.push({ q: c.faq3Question, a: c.faq3Answer });
+
+  return (
+    <section style={{ padding: "40px 0" }}>
+      <W>
+        <button 
+          onClick={() => goPage("courses")}
+          style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,.5)", background: "none", border: "none", cursor: "pointer", marginBottom: 32, fontSize: 15, fontWeight: 600 }}
+        >
+          <ChevronRight size={18} style={{ transform: "rotate(180deg)" }} />
+          Back to Courses
+        </button>
+
+        {/* Hero Section */}
+        <div className="course-hero" style={{ display: "grid", gridTemplateColumns: "clamp(300px, 40%, 500px) 1fr", gap: 60, marginBottom: 80, alignItems: "start" }}>
+          {/* Left: Image */}
+          <div style={{ position: "relative", borderRadius: 32, overflow: "hidden", border: "1px solid rgba(255,255,255,.1)", boxShadow: "0 20px 50px rgba(0,0,0,.5)" }}>
+            <img src={c.imageUrl || `https://picsum.photos/seed/${c.id}/800/1200`} alt={c.title} style={{ width: "100%", display: "block" }} referrerPolicy="no-referrer" />
+            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(5,6,10,.8), transparent)" }} />
+            {c.badge && (
+              <div style={{ position: "absolute", top: 24, left: 24, background: G, color: "#000", padding: "8px 16px", borderRadius: 12, fontSize: 13, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1 }}>
+                {c.badge}
+              </div>
+            )}
+          </div>
+
+          {/* Right: Info */}
+          <div style={{ padding: "20px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, color: G, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
+              <Award size={16} />
+              <span>{c.level || "Beginner"}</span>
+              <span style={{ opacity: .3 }}>•</span>
+              <Users size={16} />
+              <span>{c.studentsCount || "100+"} Wanafunzi</span>
+              <span style={{ opacity: .3 }}>•</span>
+              <Star size={16} fill={G} />
+              <span>{c.rating || "5.0"}</span>
+            </div>
+            
+            <h1 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: "clamp(32px, 5vw, 62px)", margin: 0, letterSpacing: "-.04em", lineHeight: 1.05 }}>{c.title}</h1>
+            <p style={{ color: G, fontSize: 22, fontWeight: 800, marginTop: 14, letterSpacing: 0.5, textTransform: "uppercase" }}>{c.shortPromise}</p>
+            
+            <div style={{ display: "flex", alignItems: "center", gap: 24, margin: "36px 0" }}>
+              <div style={{ textAlign: "left" }}>
+                {c.oldPrice && <div style={{ fontSize: 18, color: "rgba(255,255,255,.3)", textDecoration: "line-through", marginBottom: 2, fontWeight: 600 }}>{c.oldPrice}</div>}
+                <div style={{ fontSize: 52, fontWeight: 900, color: "#fff", letterSpacing: "-0.03em", lineHeight: 1 }}>{c.newPrice || c.price}</div>
+              </div>
+              <div style={{ width: 1, height: 60, background: "rgba(255,255,255,.15)" }} />
+              <div style={{ fontSize: 15, color: "rgba(255,255,255,.5)", lineHeight: 1.6, maxWidth: 280, fontWeight: 500 }}>
+                {c.priceDisclaimerShort || "Lifetime access. Malipo ni salama kupitia mitandao yote ya simu Tanzania."}
+              </div>
+            </div>
+
+            <p style={{ color: "rgba(255,255,255,.7)", fontSize: 18, lineHeight: 1.8, marginBottom: 40, maxWidth: 800 }}>{c.desc}</p>
+
+            <div style={{ display: "flex", gap: 16, marginBottom: 48 }}>
+              <GoldBtn 
+                onClick={() => window.open(`https://wa.me/8619715852043?text=Habari%20STEA%20%F0%9F%91%8B%20Nahitaji%20kujiunga%20na%20kozi%20ya%20${encodeURIComponent(c.title)}`)}
+                style={{ padding: "18px 40px", fontSize: 18, boxShadow: `0 12px 32px ${G}44` }}
+              >
+                Jiunge na Kozi Hii Sasa →
+              </GoldBtn>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, marginBottom: 48 }}>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,.05)", display: "grid", placeItems: "center", color: G }}><Clock size={24} /></div>
+                <div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Duration</div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{c.duration || "4 Weeks"}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,.05)", display: "grid", placeItems: "center", color: G }}><BookOpen size={24} /></div>
+                <div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Lessons</div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{c.totalLessons || "12"} Modules</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,.05)", display: "grid", placeItems: "center", color: G }}><Award size={24} /></div>
+                <div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Certificate</div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{c.certificateIncluded ? "Included" : "Not Included"}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,.05)", display: "grid", placeItems: "center", color: G }}><Zap size={24} /></div>
+                <div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Support</div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{c.supportType || "WhatsApp"}</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        {/* What you will learn & Suitable For */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40, marginBottom: 100 }}>
+          <div style={{ padding: 40, borderRadius: 32, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.05)" }}>
+            <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 24, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: `${G}22`, display: "grid", placeItems: "center", color: G }}><Check size={18} /></div>
+              Utajifunza Nini:
+            </h3>
+            <div style={{ display: "grid", gap: 16 }}>
+              {(c.whatYouWillLearn || []).map((item, idx) => (
+                <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 12, fontSize: 16, color: "rgba(255,255,255,.8)", lineHeight: 1.5 }}>
+                  <Check size={18} color={G} style={{ marginTop: 3, flexShrink: 0 }} />
+                  <span>{item}</span>
+                </div>
+              ))}
             </div>
           </div>
-        </TiltCard>
-      ))}
-    </div>
-  </W></section>);
+          <div style={{ padding: 40, borderRadius: 32, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.05)" }}>
+            <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 24, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: `${G}22`, display: "grid", placeItems: "center", color: G }}><Users size={18} /></div>
+              Inafaa Kwa:
+            </h3>
+            <div style={{ display: "grid", gap: 16 }}>
+              {(c.suitableFor || []).map((item, idx) => (
+                <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 12, fontSize: 16, color: "rgba(255,255,255,.8)", lineHeight: 1.5 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: G, marginTop: 10, flexShrink: 0 }} />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Testimonials Section */}
+        {testimonials.length > 0 && (
+          <div style={{ marginBottom: 100 }}>
+            <div style={{ textAlign: "center", marginBottom: 50 }}>
+              <h2 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 36, margin: 0 }}>Student <span style={{ color: G }}>Results</span></h2>
+              <p style={{ color: "rgba(255,255,255,.5)", marginTop: 10, fontSize: 16 }}>Ushuhuda kutoka kwa wanafunzi waliochukua kozi hii.</p>
+            </div>
+            <div className="testimonial-grid" style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(320px, 1fr))`, gap: 32 }}>
+              {testimonials.map((t, i) => {
+                const initials = t.name.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2);
+                return (
+                  <motion.div 
+                    key={i} 
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.1 }}
+                    whileHover={{ y: -8, boxShadow: `0 24px 48px rgba(0,0,0,0.4)`, borderColor: "rgba(245,166,35,0.2)" }}
+                    style={{ padding: 40, borderRadius: 32, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.06)", position: "relative", transition: "all .4s cubic-bezier(0.175, 0.885, 0.32, 1.275)" }}
+                  >
+                    <div style={{ position: "absolute", top: 30, right: 40, opacity: 0.05 }}><MessageCircle size={60} /></div>
+                    <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+                      {[1, 2, 3, 4, 5].map(s => <Star key={s} size={16} fill={G} color={G} />)}
+                    </div>
+                    <p style={{ fontSize: 18, lineHeight: 1.8, color: "rgba(255,255,255,.85)", marginBottom: 36, fontStyle: "italic", fontWeight: 500, position: "relative", zIndex: 1 }}>&quot;{t.text}&quot;</p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 16, position: "relative", zIndex: 1 }}>
+                      <div style={{ width: 52, height: 52, borderRadius: 16, background: `linear-gradient(135deg, ${G}, ${G2})`, color: "#111", display: "grid", placeItems: "center", fontWeight: 900, fontSize: 20, boxShadow: `0 8px 16px ${G}33` }}>{initials}</div>
+                      <div>
+                        <div style={{ fontWeight: 900, fontSize: 17, color: "#fff" }}>{t.name}</div>
+                        <div style={{ fontSize: 13, color: "rgba(255,255,255,.45)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{t.role || "Student"}</div>
+                      </div>
+                    </div>
+                    {/* Subtle Card Glow */}
+                    <div style={{ position: "absolute", bottom: 0, right: 0, width: "100%", height: "100%", background: `radial-gradient(circle at bottom right, ${G}05, transparent 70%)`, borderRadius: 32, pointerEvents: "none" }} />
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* FAQ Section */}
+        {faqs.length > 0 && (
+          <div style={{ maxWidth: 900, margin: "0 auto 100px" }}>
+            <div style={{ textAlign: "center", marginBottom: 50 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 20, background: "rgba(245,166,35,.1)", display: "grid", placeItems: "center", margin: "0 auto 20px" }}>
+                <HelpCircle size={32} color={G} />
+              </div>
+              <h2 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 36, margin: 0 }}>Maswali <span style={{ color: G }}>mnayouliza sana</span></h2>
+              <p style={{ color: "rgba(255,255,255,.5)", marginTop: 10 }}>Kila kitu unachohitaji kujua kuhusu kozi hii.</p>
+            </div>
+            <div style={{ display: "grid", gap: 16 }}>
+              {faqs.map((faq, i) => (
+                <motion.details 
+                  key={i} 
+                  className="faq-item" 
+                  whileHover={{ scale: 1.01 }}
+                  style={{ background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.06)", borderRadius: 24, overflow: "hidden", transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)" }}
+                >
+                  <summary style={{ padding: "28px 36px", cursor: "pointer", fontWeight: 800, fontSize: 19, display: "flex", alignItems: "center", justifyContent: "space-between", listStyle: "none", color: "#fff" }}>
+                    {faq.q}
+                    <div style={{ width: 32, height: 32, borderRadius: 10, background: "rgba(255,255,255,0.05)", display: "grid", placeItems: "center", transition: "0.3s" }} className="chevron-box">
+                      <ChevronRight size={20} className="chevron" style={{ transition: "transform .4s ease" }} />
+                    </div>
+                  </summary>
+                  <div style={{ padding: "0 36px 28px", color: "rgba(255,255,255,.65)", lineHeight: 1.9, fontSize: 17, fontWeight: 500 }}>
+                    {faq.a}
+                  </div>
+                </motion.details>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Final CTA Section */}
+        <div style={{ textAlign: "center", padding: "80px 40px", borderRadius: 40, background: `linear-gradient(135deg, ${G}22 0%, transparent 100%)`, border: `1px solid ${G}33`, position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: -100, right: -100, width: 300, height: 300, background: G, filter: "blur(150px)", opacity: .1 }} />
+          <h2 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 42, marginBottom: 20, letterSpacing: "-.02em" }}>Uko Tayari <span style={{ color: G }}>Kuanza?</span></h2>
+          <p style={{ maxWidth: 600, margin: "0 auto 40px", color: "rgba(255,255,255,.7)", fontSize: 18, lineHeight: 1.6 }}>
+            {c.priceDisclaimerFull}
+          </p>
+          <GoldBtn onClick={() => window.open(getWhatsAppLink(c), "_blank")} style={{ padding: "20px 56px", fontSize: 22, borderRadius: 20 }}>{ctaText} →</GoldBtn>
+        </div>
+      </W>
+      <style>{`
+        .faq-item[open] { background: rgba(255,255,255,.04) !important; border-color: ${G}33 !important; }
+        .faq-item[open] .chevron { transform: rotate(90deg); color: ${G}; }
+        .faq-item summary::-webkit-details-marker { display: none; }
+        @media (max-width: 900px) {
+          .course-hero { grid-template-columns: 1fr !important; gap: 32px !important; }
+          .course-grid { grid-template-columns: 1fr !important; }
+          .testimonial-grid { grid-template-columns: 1fr !important; }
+          .faq-item summary { padding: 20px; font-size: 16px; }
+          .faq-item div { padding: 0 20px 20px; font-size: 15px; }
+        }
+      `}</style>
+    </section>
+  );
 }
 
 function DukaPage(){
-  const { docs, loading } = useCollection("products", "createdAt");
+  const { docs, loading } = useCollection("products", "createdAt", 30);
   const products = docs.length > 0 ? docs : PRODUCTS;
 
   return(<section style={{padding:"26px 0"}}><W>
     <SHead title="Electronics" hi="Duka" copy="Curated affiliate products na verified deals kwa buyers wa Tanzania."/>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:22}}>
       {loading ? [1,2,3].map(i=><Skeleton key={i}/>) : products.map((p,i)=>(<TiltCard key={p.id||i}>
-        <div style={{paddingTop:"52%",position:"relative",background:"linear-gradient(135deg,rgba(245,166,35,.15),rgba(255,255,255,.03)),linear-gradient(180deg,#252538,#171720)"}}>
-          <div style={{position:"absolute",inset:0,display:"grid",placeItems:"center",fontSize:52}}>{p.icon}</div>
+        <div style={{aspectRatio:"16/9",position:"relative",background:"rgba(255,255,255,.03)",overflow:"hidden"}}>
+          <img 
+            src={p.imageUrl || `https://picsum.photos/seed/duka-${p.id||i}/800/450`} 
+            alt={p.name} 
+            referrerPolicy="no-referrer"
+            style={{width:"100%",height:"100%",objectFit:"cover",position:"absolute",inset:0}}
+            onError={(e) => {
+              e.target.src = `https://picsum.photos/seed/duka-${p.id||i}/800/450`;
+            }}
+          />
           {p.badge && <div style={{position:"absolute",top:14,left:14,borderRadius:999,padding:"6px 11px",border:"1px solid rgba(255,255,255,.08)",background:"rgba(14,14,22,.75)",color:G,fontSize:11,fontWeight:800}}>{p.badge}</div>}
-          <div style={{position:"absolute",top:14,right:14,borderRadius:999,padding:"6px 11px",border:"1px solid rgba(0,196,140,.3)",background:"rgba(0,196,140,.15)",color:"#00C48C",fontSize:10,fontWeight:900,display:"flex",alignItems:"center",gap:4,backdropFilter:"blur(4px)"}}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg> Verified by STEA
-          </div>
         </div>
         <div style={{padding:18}}>
           <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:20,margin:"0 0 9px",letterSpacing:"-.03em"}}>{p.name}</h3>
@@ -587,16 +1148,18 @@ function DukaPage(){
 }
 
 function WebsitesPage(){
-  const { docs, loading } = useCollection("websites", "createdAt");
+  const { docs, loading } = useCollection("websites", "createdAt", 30);
   const websites = docs.length > 0 ? docs : WEBSITES;
 
   return(<section style={{padding:"26px 0"}}><W>
     <SHead title="Websites za" hi="Kijanja" copy="Sites zinazookoa pesa, muda na nguvu — nimezijaribu zote."/>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:22}}>
       {loading ? [1,2,3].map(i=><Skeleton key={i}/>) : websites.map((w,i)=>(<TiltCard key={w.id||i}>
-        <Thumb bg={w.bg} icon={w.icon} name={w.name} domain={w.meta}/>
+        <Thumb bg={w.bg} iconUrl={w.iconUrl} name={w.name} domain={w.meta} imageUrl={w.imageUrl} id={w.id}/>
         <div style={{padding:18,display:"flex",gap:13,alignItems:"flex-start"}}>
-          <div style={{width:48,height:48,borderRadius:13,display:"grid",placeItems:"center",background:"rgba(245,166,35,.12)",color:G,fontSize:22,flexShrink:0}}>{w.icon}</div>
+          <div style={{width:48,height:48,borderRadius:13,overflow:"hidden",display:"grid",placeItems:"center",background:"rgba(245,166,35,.12)",color:G,fontSize:22,flexShrink:0}}>
+            {w.iconUrl && <img src={w.iconUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} referrerPolicy="no-referrer" />}
+          </div>
           <div style={{minWidth:0}}>
             <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:18,margin:"0 0 3px",letterSpacing:"-.03em"}}>{w.name}</h3>
             <div style={{fontSize:12,color:"rgba(255,255,255,.4)",margin:"0 0 7px"}}>{w.meta}</div>
@@ -604,7 +1167,7 @@ function WebsitesPage(){
             <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
               {(w.tags || []).map((t,j)=><span key={j} style={{color:j===0?G:"#75c5ff",fontSize:12,fontWeight:800}}>{t}</span>)}
             </div>
-            <GoldBtn onClick={()=>window.open(w.url,"_blank")} style={{fontSize:13,padding:"8px 14px"}}>{w.icon} Tembelea →</GoldBtn>
+            <GoldBtn onClick={()=>window.open(w.url,"_blank")} style={{fontSize:13,padding:"8px 14px"}}>Tembelea →</GoldBtn>
           </div>
         </div>
       </TiltCard>))}
@@ -612,448 +1175,860 @@ function WebsitesPage(){
   </W></section>);
 }
 
-// ── Robotic Hand Hero Component ───────────────────────
-function RoboticHand(){
-  return(<>
-    <style>{`
-      @keyframes robotEnter {
-        0%   { opacity:0; transform:translateX(160px) translateY(80px) rotate(-22deg) scale(0.55); filter:drop-shadow(0 0 80px rgba(138,43,226,.9)); }
-        60%  { opacity:.9; transform:translateX(-12px) translateY(-10px) rotate(4deg) scale(1.05); filter:drop-shadow(0 0 50px rgba(138,43,226,.55)); }
-        80%  { opacity:.78; transform:translateX(6px) translateY(5px) rotate(-1.5deg) scale(0.97); }
-        100% { opacity:.75; transform:translateX(0) translateY(0) rotate(0) scale(1); filter:drop-shadow(0 0 28px rgba(138,43,226,.3)); }
-      }
-      .rh-wrap { animation: robotEnter 1.8s cubic-bezier(.34,1.56,.64,1) 0.2s both; }
-      @keyframes robotFloat {
-        0%,100% { transform:translateY(0); }
-        50% { transform:translateY(-14px); }
-      }
-      .rh-inner { animation: robotFloat 5s ease-in-out 2.2s infinite; }
-    `}</style>
-    <div className="rh-wrap" style={{
-      position:"absolute",
-      right:"-2%",
-      bottom:"-5%",
-      width:"clamp(260px,42%,520px)",
-      height:"clamp(300px,52%,600px)",
-      pointerEvents:"none",
-      zIndex:1,
-    }}>
-    <div className="rh-inner" style={{width:"100%",height:"100%"}}>
-      <svg viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:"100%",objectFit:"contain"}}>
-        <defs>
-          <linearGradient id="rh1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#7c3aed"/>
-            <stop offset="50%" stopColor="#4f46e5"/>
-            <stop offset="100%" stopColor="#06b6d4"/>
-          </linearGradient>
-          <linearGradient id="rh2" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#8b5cf6"/>
-            <stop offset="100%" stopColor="#06b6d4"/>
-          </linearGradient>
-          <linearGradient id="rh3" x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#1e1b4b"/>
-            <stop offset="100%" stopColor="#312e81"/>
-          </linearGradient>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="3" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-          <radialGradient id="joint" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#22d3ee"/>
-            <stop offset="100%" stopColor="#0891b2"/>
-          </radialGradient>
-        </defs>
+// ── Prompt Lab Components ──────────────────────────────
+const generatePromptPDF = (p) => {
+  const doc = new jsPDF();
+  doc.setFillColor(20, 24, 35);
+  doc.rect(0, 0, 210, 297, 'F');
+  
+  doc.setFillColor(245, 166, 35);
+  doc.rect(0, 0, 210, 25, 'F');
+  
+  doc.setTextColor(17, 17, 17);
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.text("SWAHILITECH ELITE ACADEMY (STEA)", 105, 16, { align: "center" });
 
-        {/* Forearm */}
-        <path d="M160 500 Q140 420 150 360 Q155 330 200 320 Q245 330 250 360 Q260 420 240 500Z"
-          fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="2"/>
-        <path d="M165 480 Q155 420 160 370" stroke="url(#rh2)" strokeWidth="1.5" fill="none" opacity=".6"/>
-        <path d="M235 480 Q245 420 240 370" stroke="url(#rh2)" strokeWidth="1.5" fill="none" opacity=".6"/>
+  doc.setTextColor(245, 166, 35);
+  doc.setFontSize(24);
+  doc.text(p.title, 20, 45);
 
-        {/* Wrist joint */}
-        <ellipse cx="200" cy="320" rx="52" ry="22" fill="url(#rh1)" filter="url(#glow)"/>
-        <ellipse cx="200" cy="318" rx="42" ry="16" fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="1.5"/>
-        {[160,180,200,220,240].map((x,i)=>(
-          <circle key={i} cx={x} cy="318" r="4" fill="url(#joint)" opacity=".9"/>
-        ))}
+  doc.setFontSize(12);
+  doc.setTextColor(180, 180, 180);
+  doc.text(`Category: ${p.category}`, 20, 53);
 
-        {/* Palm */}
-        <path d="M148 260 Q145 300 148 320 L252 320 Q255 300 252 260 Q248 240 200 236 Q152 240 148 260Z"
-          fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="2"/>
-        <path d="M155 265 Q155 310 158 318 M245 265 Q245 310 242 318"
-          stroke="url(#rh2)" strokeWidth="1" fill="none" opacity=".5"/>
+  doc.setDrawColor(245, 166, 35);
+  doc.setLineWidth(0.5);
+  doc.line(20, 60, 190, 60);
 
-        {/* Knuckle joints */}
-        {[163,188,200,213,237].map((x,i)=>(
-          <g key={i}>
-            <ellipse cx={x} cy="260" rx="10" ry="8" fill="url(#rh1)" opacity=".9"/>
-            <ellipse cx={x} cy="259" rx="7" ry="5" fill="url(#rh3)"/>
-            <circle cx={x} cy="259" r="2.5" fill="url(#joint)"/>
-          </g>
-        ))}
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text("The Prompt:", 20, 75);
+  
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(12);
+  doc.setTextColor(220, 220, 220);
+  const splitPrompt = doc.splitTextToSize(`"${p.prompt}"`, 170);
+  doc.text(splitPrompt, 20, 85);
 
-        {/* Finger 1 — pinky (curled) */}
-        <path d="M148 260 Q135 240 130 220 Q128 205 138 200 Q148 198 152 215 Q155 235 155 258"
-          fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="2"/>
-        <ellipse cx="139" cy="200" rx="9" ry="7" fill="url(#rh1)" opacity=".85"/>
+  let currentY = 85 + (splitPrompt.length * 7);
 
-        {/* Finger 2 — ring */}
-        <path d="M163 258 Q158 225 158 195 Q159 175 170 170 Q181 168 183 188 Q184 215 180 258"
-          fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="2"/>
-        <ellipse cx="171" cy="170" rx="10" ry="8" fill="url(#rh1)" opacity=".85"/>
-        <ellipse cx="166" cy="215" rx="8" ry="6" fill="url(#rh1)" opacity=".7"/>
+  if (p.howToUse) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(245, 166, 35);
+    doc.text("Step-by-Step Guide:", 20, currentY + 15);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(200, 200, 200);
+    const splitHow = doc.splitTextToSize(p.howToUse, 170);
+    doc.text(splitHow, 20, currentY + 25);
+  }
 
-        {/* Finger 3 — middle (tallest) */}
-        <path d="M188 257 Q185 215 185 175 Q186 150 200 146 Q214 148 215 175 Q215 215 212 257"
-          fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="2"/>
-        <ellipse cx="200" cy="146" rx="11" ry="9" fill="url(#rh1)" filter="url(#glow)"/>
-        <ellipse cx="200" cy="205" rx="9" ry="7" fill="url(#rh1)" opacity=".7"/>
-        <circle cx="200" cy="146" r="4" fill="url(#joint)"/>
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text("© 2026 SwahiliTech Elite Academy - Tanzania's Tech Hub", 105, 285, { align: "center" });
 
-        {/* Finger 4 — index */}
-        <path d="M213 257 Q216 220 218 188 Q220 165 232 162 Q243 162 244 185 Q244 218 238 258"
-          fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="2"/>
-        <ellipse cx="233" cy="162" rx="10" ry="8" fill="url(#rh1)" opacity=".85"/>
-        <ellipse cx="228" cy="215" rx="8" ry="6" fill="url(#rh1)" opacity=".7"/>
+  doc.save(`STEA_Prompt_${p.title.replace(/\s+/g, '_')}.pdf`);
+};
 
-        {/* Finger 5 — thumb */}
-        <path d="M252 268 Q275 255 288 238 Q298 224 292 212 Q284 202 272 210 Q260 222 255 248"
-          fill="url(#rh3)" stroke="url(#rh2)" strokeWidth="2"/>
-        <ellipse cx="291" cy="211" rx="9" ry="8" fill="url(#rh1)" opacity=".85"/>
-
-        {/* Glow dots on fingertips */}
-        {[[139,200],[171,170],[200,146],[233,162],[291,211]].map(([x,y],i)=>(
-          <circle key={i} cx={x} cy={y} r="3" fill="#22d3ee" opacity=".9" filter="url(#glow)"/>
-        ))}
-
-        {/* Ambient glow underneath */}
-        <ellipse cx="200" cy="490" rx="80" ry="12" fill="#7c3aed" opacity=".25"/>
-      </svg>
-    </div>
-    </div>
-  </>);
-}
-
-// ── Hero title fade-in ────────────────────────────────
-function HeroTitle(){
-  return(<>
-    <style>{`
-      @keyframes titleIn {
-        from { opacity:0; transform:translateY(28px); }
-        to   { opacity:1; transform:translateY(0); }
-      }
-      .hero-title { animation: titleIn 1s ease 0.5s both; }
-    `}</style>
-    <h1 className="hero-title" style={{
-      fontFamily:"'Bricolage Grotesque',sans-serif",
-      fontSize:"clamp(46px,7vw,106px)",
-      lineHeight:.88,
-      letterSpacing:"-.07em",
-      margin:"0 0 14px",
-    }}>
-      <span style={{display:"block"}}>SwahiliTech</span>
-      <span style={{display:"block",background:"linear-gradient(135deg,#F5A623,#FFD17C)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Elite Academy</span>
-    </h1>
-  </>);
-}
-
-// ── Prompt Lab Data ───────────────────────────────────
-const PROMPT_LAB_DATA = [
-  {
-    id:"p1",
-    category:"📱 Social Media",
-    emoji:"📸",
-    title:"Caption ya Instagram Inayovutia",
-    prompt:"Niandikia caption ya Instagram kwa biashara ya [AINA YA BIASHARA] inayouza [BIDHAA]. Itumie emoji, hashtags 5 na CTA nzuri. Lugha: Kiswahili. Toni: friendly na professional.",
-    guide:[
-      "Badilisha [AINA YA BIASHARA] na biashara yako — mfano: 'duka la nguo'",
-      "Badilisha [BIDHAA] na bidhaa unayouza — mfano: 'madresi ya shule'",
-      "Nakili prompt → Weka kwenye ChatGPT au Gemini",
-      "Edit kidogo matokeo kulingana na brand yako",
-    ],
-    tags:["Instagram","Caption","Kiswahili"],
-    image: "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600&h=400&fit=crop&q=80",
-  },
-  {
-    id:"p2",
-    category:"🤖 AI Business",
-    emoji:"💼",
-    title:"Business Plan ya Haraka",
-    prompt:"Nitengenezee business plan fupi kwa biashara ya [AINA YA BIASHARA] Tanzania. Nijumuishie: muhtasari, wateja walengwa, mapato yanayotarajiwa, changamoto na mkakati wa masoko. Lugha rahisi ya Kiswahili.",
-    guide:[
-      "Badilisha [AINA YA BIASHARA] na idea yako ya biashara",
-      "Tumia ChatGPT-4 kwa matokeo bora zaidi",
-      "Omba mabadiliko kama unahitaji — 'Ongeza sehemu ya...'",
-      "Print au save kama PDF kwa investors",
-    ],
-    tags:["Business","Planning","AI"],
-    image: "https://images.unsplash.com/photo-1664575602276-acd073f104c1?w=600&h=400&fit=crop&q=80",
-  },
-  {
-    id:"p3",
-    category:"📝 Content Creation",
-    emoji:"✍️",
-    title:"Script ya Video ya TikTok/Reels",
-    prompt:"Niandikia script ya video ya sekunde 60 kuhusu [MADA] kwa vijana wa Tanzania. Anze na hook inayovutia, toa value 3 muhimu, malizia na CTA. Lugha: Kiswahili cha kawaida. Format: [Hook] [Point 1] [Point 2] [Point 3] [CTA]",
-    guide:[
-      "Badilisha [MADA] — mfano: 'jinsi ya kutumia AI kupata pesa'",
-      "Hook ni muhimu — sekunde 3 za kwanza ziamue kila kitu",
-      "Rekodi kwa phone yako, edit na CapCut",
-      "Post wakati mzuri: 7pm-9pm Tanzania time",
-    ],
-    tags:["TikTok","Reels","Script"],
-    image: "https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=600&h=400&fit=crop&q=80",
-  },
-  {
-    id:"p4",
-    category:"💰 Affiliate Marketing",
-    emoji:"🔗",
-    title:"Post ya Affiliate Deal",
-    prompt:"Niandikia post ya WhatsApp/Telegram kuhusu deal ya [BIDHAA/HUDUMA] ambayo ina discount ya [DISCOUNT]. Jumuisha: bei ya zamani, bei mpya, promo code '[CODE]', na sababu 3 za kununua sasa. Lugha: Kiswahili. Iwe ya kushawishi lakini ya kweli.",
-    guide:[
-      "Badilisha [BIDHAA/HUDUMA], [DISCOUNT] na [CODE] na details halisi",
-      "Ongeza urgency — 'Offer inaisha [TAREHE]'",
-      "Tuma kwenye WhatsApp groups zako",
-      "Track clicks kwa bit.ly au link shortener",
-    ],
-    tags:["Affiliate","WhatsApp","Marketing"],
-    image: "https://images.unsplash.com/photo-1611262588024-d12430b98920?w=600&h=400&fit=crop&q=80",
-  },
-  {
-    id:"p5",
-    category:"🎓 Learning",
-    emoji:"📚",
-    title:"Muhtasari wa Kujifunza",
-    prompt:"Nielezeee [MADA/CONCEPT] kwa lugha rahisi kama ninaelezea mtu wa miaka 15 Tanzania. Tumia: mfano wa kawaida wa maisha ya Tanzania, hatua 5 za kuelewa, na quiz ya maswali 3 mwishowe. Jibu kwa Kiswahili.",
-    guide:[
-      "Tumia hii kujifunza topics ngumu — coding, finance, AI",
-      "Omba mifano zaidi kama hauelewi",
-      "Fanya quiz ili ujipime",
-      "Save muhtasari kwenye Notion au notes yako",
-    ],
-    tags:["Learning","Study","Education"],
-    image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&h=400&fit=crop&q=80",
-  },
-  {
-    id:"p6",
-    category:"📧 Professional",
-    emoji:"📨",
-    title:"Barua Pepe ya Professional",
-    prompt:"Niandikia barua pepe ya professional kwa [MPOKEAJI/KAMPUNI] nikitaka [LENGO - mfano: partnership, kazi, meeting]. Niwe confident lakini humble. Jumuisha: utambulisho wangu, sababu ninawasiliana, ombi wazi, na shukrani. Lugha: Kiingereza (professional).",
-    guide:[
-      "Badilisha [MPOKEAJI/KAMPUNI] na jina la mtu/kampuni",
-      "Badilisha [LENGO] na unachotaka — 'nafasi ya kazi', 'collaboration'",
-      "Soma mara 2 kabla kutuma — angalia spelling",
-      "Follow up baada ya siku 3-5 kama hakuna jibu",
-    ],
-    tags:["Email","Professional","Career"],
-    image: "https://images.unsplash.com/photo-1596524430615-b46475ddff6e?w=600&h=400&fit=crop&q=80",
-  },
-];
-
-// ── Prompt Lab Page ───────────────────────────────────
-function PromptLabPage(){
-  const [copied, setCopied] = useState(null);
-  const [openGuide, setOpenGuide] = useState(null);
-  const [filter, setFilter] = useState("All");
-  const [lightbox, setLightbox] = useState(null);
-  const { docs: liveDocs, loading } = useCollection("prompts");
-
-  const categories = ["All", "📱 Social Media", "🤖 AI Business", "📝 Content Creation", "💰 Affiliate Marketing", "🎓 Learning", "📧 Professional"];
-
-  // Use live Firestore data if available, otherwise use fallback
-  const allPrompts = liveDocs.length > 0 ? liveDocs : PROMPT_LAB_DATA;
-  const filtered = filter === "All" ? allPrompts : allPrompts.filter(p=>p.category===filter);
-
-  const copyPrompt = (id, text) => {
-    navigator.clipboard.writeText(text).then(()=>{
-      setCopied(id);
-      setTimeout(()=>setCopied(null), 2500);
-    });
+function PromptModal({ prompt: p, onClose }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; });
+  
+  const handleCopy = () => {
+    navigator.clipboard.writeText(p.prompt);
+    setCopied(true);
+    confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 }, colors: [G, G2] });
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  return(
-    <section style={{padding:"26px 0"}}>
-      <W>
-        {/* Lightbox */}
-        {lightbox && (
-          <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,zIndex:800,background:"rgba(0,0,0,.92)",backdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-            <div style={{position:"relative",maxWidth:900,width:"100%"}}>
-              <button onClick={()=>setLightbox(null)} style={{position:"absolute",top:-44,right:0,border:"none",background:"rgba(255,255,255,.1)",color:"#fff",borderRadius:10,padding:"8px 16px",cursor:"pointer",fontWeight:700}}>✕ Funga</button>
-              <img src={lightbox} alt="Preview" style={{width:"100%",borderRadius:20,boxShadow:"0 32px 80px rgba(0,0,0,.6)"}}/>
-            </div>
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, zIndex: 800, background: "rgba(4,5,9,.94)", backdropFilter: "blur(20px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        style={{ width: "min(900px, 100%)", borderRadius: 32, border: "1px solid rgba(255,255,255,.12)", background: "rgba(15,18,28,.98)", boxShadow: "0 40px 100px rgba(0,0,0,.6)", overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: p.imageUrl ? "row" : "column" }}
+      >
+        {p.imageUrl && (
+          <div style={{ width: "clamp(200px, 35%, 320px)", flexShrink: 0, background: "rgba(255,255,255,.05)", position: "relative" }}>
+            <img 
+              src={p.imageUrl} 
+              style={{ width: "100%", height: "100%", objectFit: "cover" }} 
+              referrerPolicy="no-referrer" 
+              alt={p.title} 
+              onError={(e) => {
+                e.target.src = `https://picsum.photos/seed/stea-modal-${p.id}/800/1200`;
+              }}
+            />
           </div>
         )}
-
-        {/* Header */}
-        <div style={{marginBottom:32}}>
-          <div style={{display:"inline-flex",alignItems:"center",gap:8,borderRadius:999,padding:"8px 16px",border:"1px solid rgba(138,43,226,.3)",background:"rgba(138,43,226,.1)",color:"#a78bfa",fontSize:11,fontWeight:900,textTransform:"uppercase",letterSpacing:".12em",marginBottom:16}}>
-            ⚗️ PROMPT & WORKFLOW LAB
+        <div style={{ padding: 32, flex: 1, overflowY: "auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+            <div>
+              <span style={{ padding: "6px 14px", borderRadius: 99, fontSize: 11, fontWeight: 900, ...BS.gold, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, display: "inline-block" }}>{p.category}</span>
+              <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 32, margin: 0, letterSpacing: "-.04em" }}>{p.title}</h2>
+            </div>
+            <button onClick={onClose} style={{ width: 40, height: 40, borderRadius: 12, border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.05)", color: "#fff", cursor: "pointer" }}>✕</button>
           </div>
-          <h2 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:"clamp(28px,3vw,44px)",letterSpacing:"-.04em",margin:"0 0 10px"}}>
-            Prompts Bora <span style={{color:"#F5A623"}}>za Kazi</span>
-          </h2>
-          <p style={{color:"rgba(255,255,255,.5)",fontSize:15,lineHeight:1.8,maxWidth:640,margin:0}}>
-            Copy prompts zilizoundwa maalum kwa Watanzania — kwa biashara, content creation, kujifunza na zaidi. Kila prompt ina step-by-step guide.
-          </p>
-        </div>
 
-        {/* Category Filter */}
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:28,overflowX:"auto",paddingBottom:4}}>
-          {categories.map(c=>(
-            <button key={c} onClick={()=>setFilter(c)}
-              style={{border:`1px solid ${filter===c?"rgba(245,166,35,.5)":"rgba(255,255,255,.1)"}`,borderRadius:999,padding:"8px 16px",background:filter===c?"rgba(245,166,35,.15)":"rgba(255,255,255,.04)",color:filter===c?"#F5A623":"rgba(255,255,255,.6)",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap",transition:"all .2s"}}>
-              {c}
-            </button>
-          ))}
-        </div>
+          <div style={{ background: "rgba(0,0,0,.3)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 20, padding: 24, marginBottom: 28, position: "relative" }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: G, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>The Prompt</div>
+            <p style={{ color: "#fff", fontSize: 16, lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{p.prompt}</p>
+          </div>
 
-        {/* Prompt Cards Grid */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:22}}>
-          {filtered.map(item=>(
-            <div key={item.id} style={{borderRadius:22,border:"1px solid rgba(255,255,255,.08)",background:"#141823",overflow:"hidden",transition:"border-color .25s,transform .25s",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(138,43,226,.35)";e.currentTarget.style.transform="translateY(-4px)";}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,.08)";e.currentTarget.style.transform="";}}>
-
-              {/* Image */}
-              {item.image && (
-                <div onClick={() => setLightbox(item.image)} style={{width:"100%",height:160,background:`url(${item.image}) center/cover`,cursor:"pointer",position:"relative"}} title="Bofya kuona picha kubwa">
-                  <div style={{position:"absolute",inset:0,background:"linear-gradient(0deg, #141823 0%, transparent 100%)"}}/>
-                  <div style={{position:"absolute",bottom:10,right:10,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",padding:"4px 8px",borderRadius:8,fontSize:10,fontWeight:800,color:"#fff",display:"flex",alignItems:"center",gap:4}}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-                    Panua
-                  </div>
-                </div>
-              )}
-
-              {/* Card header */}
-              <div style={{padding:"18px 20px 14px",background:"linear-gradient(135deg,rgba(138,43,226,.12),rgba(6,182,212,.08))",borderBottom:"1px solid rgba(255,255,255,.06)",display:"flex",alignItems:"center",gap:12}}>
-                <div style={{width:48,height:48,borderRadius:14,background:"linear-gradient(135deg,rgba(138,43,226,.3),rgba(6,182,212,.2))",display:"grid",placeItems:"center",fontSize:24,flexShrink:0}}>{item.emoji}</div>
-                <div>
-                  <div style={{fontSize:11,fontWeight:800,color:"#a78bfa",letterSpacing:".06em",textTransform:"uppercase",marginBottom:3}}>{item.category}</div>
-                  <div style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:16,fontWeight:800,letterSpacing:"-.02em"}}>{item.title}</div>
-                </div>
+          {p.howToUse && (
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: G, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                <Zap size={18} /> Jinsi ya Kutumia (Step-by-Step)
               </div>
-
-              {/* Prompt text */}
-              <div style={{padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
-                <div style={{fontSize:12,fontWeight:800,color:"rgba(255,255,255,.35)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>📋 Prompt</div>
-                <p style={{color:"rgba(255,255,255,.7)",fontSize:13,lineHeight:1.75,margin:"0 0 14px",fontFamily:"monospace",background:"rgba(255,255,255,.04)",borderRadius:12,padding:"12px 14px",border:"1px solid rgba(255,255,255,.06)"}}>
-                  {item.prompt}
-                </p>
-
-                {/* Copy button */}
-                <button onClick={()=>copyPrompt(item.id, item.prompt)}
-                  style={{width:"100%",height:44,borderRadius:12,border:"none",background:copied===item.id?"linear-gradient(135deg,#10b981,#059669)":"linear-gradient(135deg,#7c3aed,#4f46e5)",color:"#fff",fontWeight:900,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .2s"}}>
-                  {copied===item.id ? "✅ Imenakiliwa!" : "📋 Copy Prompt"}
-                </button>
-              </div>
-
-              {/* Tags */}
-              <div style={{padding:"12px 20px",display:"flex",gap:8,flexWrap:"wrap",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
-                {item.tags.map((t,i)=>(
-                  <span key={i} style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:99,background:"rgba(138,43,226,.12)",color:"#a78bfa",border:"1px solid rgba(138,43,226,.2)"}}>{t}</span>
-                ))}
-              </div>
-
-              {/* Step-by-step accordion */}
-              <div style={{padding:"0"}}>
-                <button onClick={()=>setOpenGuide(openGuide===item.id?null:item.id)}
-                  style={{width:"100%",padding:"14px 20px",border:"none",background:"transparent",color:"rgba(255,255,255,.6)",fontWeight:800,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",transition:"color .2s"}}
-                  onMouseEnter={e=>e.currentTarget.style.color="#F5A623"}
-                  onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,.6)"}>
-                  <span>📖 Jinsi ya Kutumia</span>
-                  <span style={{transition:"transform .25s",transform:openGuide===item.id?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
-                </button>
-                {openGuide===item.id && (
-                  <div style={{padding:"0 20px 20px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-                    <div style={{display:"grid",gap:8,marginTop:14}}>
-                      {item.guide.map((step,i)=>(
-                        <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                          <span style={{width:24,height:24,borderRadius:8,background:"linear-gradient(135deg,#F5A623,#FFD17C)",display:"grid",placeItems:"center",color:"#111",fontWeight:900,fontSize:11,flexShrink:0,marginTop:1}}>{i+1}</span>
-                          <span style={{fontSize:13,color:"rgba(255,255,255,.65)",lineHeight:1.65}}>{step}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div style={{ color: "rgba(255,255,255,.7)", fontSize: 15, lineHeight: 1.8, whiteSpace: "pre-line", paddingLeft: 12, borderLeft: `2px solid ${G}33` }}>
+                {p.howToUse}
               </div>
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* Bottom CTA */}
-        <div style={{marginTop:48,borderRadius:24,border:"1px solid rgba(138,43,226,.2)",background:"linear-gradient(135deg,rgba(138,43,226,.08),rgba(6,182,212,.05))",padding:"32px 28px",display:"flex",gap:24,alignItems:"center",flexWrap:"wrap"}}>
-          <div style={{flex:1,minWidth:260}}>
-            <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:24,margin:"0 0 8px",letterSpacing:"-.03em"}}>Unataka Prompts Zaidi? 🚀</h3>
-            <p style={{color:"rgba(255,255,255,.5)",fontSize:15,margin:0,lineHeight:1.7}}>Jiunge na STEA community — tunatuma prompts mpya na workflow guides kila wiki bure.</p>
+          {p.tools && p.tools.length > 0 && (
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: G, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>Tools to Use</div>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {p.tools.map((tool, i) => {
+                  let hostname;
+                  try { hostname = new URL(tool.toolUrl).hostname.replace("www.", ""); } catch { hostname = "Tool"; }
+                  return (
+                    <a key={i} href={tool.toolUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: 12, background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", textDecoration: "none", color: "#fff", fontSize: 13, fontWeight: 700, transition: ".2s" }} onMouseEnter={ev => ev.currentTarget.style.background = "rgba(255,255,255,.1)"} onMouseLeave={ev => ev.currentTarget.style.background = "rgba(255,255,255,.05)"}>
+                      {tool.iconUrl ? <img src={tool.iconUrl} style={{ width: 20, height: 20, borderRadius: 4 }} referrerPolicy="no-referrer" /> : "🔗"}
+                      {hostname}
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <button onClick={handleCopy} style={{ height: 54, borderRadius: 16, border: "none", background: copied ? "#00C48C" : `linear-gradient(135deg,${G},${G2})`, color: "#111", fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, transition: ".3s" }}>
+              {copied ? <Check size={20} /> : <Copy size={20} />} {copied ? "Imenakiliwa!" : "Nakili Prompt"}
+            </button>
+            <button onClick={() => generatePromptPDF(p)} style={{ height: 54, borderRadius: 16, border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.05)", color: "#fff", fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              <Download size={20} /> Download PDF
+            </button>
           </div>
-          <a href="https://wa.me/8619715852043?text=Nataka+prompts+zaidi+za+STEA" target="_blank" rel="noreferrer"
-            style={{display:"inline-flex",alignItems:"center",gap:10,padding:"14px 24px",borderRadius:16,background:"linear-gradient(135deg,#7c3aed,#4f46e5)",color:"#fff",fontWeight:900,fontSize:15,textDecoration:"none",flexShrink:0}}>
-            💬 Jiunge WhatsApp →
-          </a>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function PromptLabPage() {
+  const { docs, loading } = useCollection("prompts", "createdAt", 30);
+  const prompts = docs.length > 0 ? docs : FALLBACK_PROMPTS;
+  const [sel, setSel] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+
+  const handleCopy = (txt, id) => {
+    navigator.clipboard.writeText(txt);
+    setCopiedId(id);
+    confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 }, colors: [G, G2] });
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  return (
+    <section style={{ padding: "40px 0" }}>
+      <W>
+        {sel && <PromptModal prompt={sel} onClose={() => setSel(null)} />}
+        <SHead title="Prompt" hi="Lab" copy="Maktaba ya AI Prompts bora zilizojaribiwa kwa Kiswahili. Copy na u-paste kwenye ChatGPT, Gemini au Claude." />
+        
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 24 }}>
+          {loading ? [1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} type="prompt" />) : prompts.map(p => (
+            <TiltCard key={p.id} style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ position: "relative", aspectRatio: "9/16", background: "rgba(255,255,255,.03)", borderBottom: "1px solid rgba(255,255,255,.07)", overflow: "hidden" }}>
+                <img 
+                  src={p.imageUrl || `https://picsum.photos/seed/${p.id}/800/1200`} 
+                  alt={p.title} 
+                  referrerPolicy="no-referrer"
+                  style={{ width: "100%", height: "100%", objectFit: "cover", position: "absolute", inset: 0 }}
+                  onError={(e) => {
+                    e.target.src = `https://picsum.photos/seed/stea-${p.id}/800/1200`;
+                  }}
+                />
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent, rgba(0,0,0,.4))" }} />
+                <div style={{ position: "absolute", top: 14, left: 14, zIndex: 2 }}>
+                  <span style={{ padding: "5px 12px", borderRadius: 99, fontSize: 10, fontWeight: 900, ...BS.gold, textTransform: "uppercase", letterSpacing: 1 }}>{p.category}</span>
+                </div>
+              </div>
+              <div style={{ padding: 24, display: "flex", flexDirection: "column", flex: 1, position: "relative", zIndex: 1 }}>
+                <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, margin: "0 0 12px", letterSpacing: "-.02em", lineHeight: 1.3 }}>{p.title}</h3>
+                
+                <div style={{ flex: 1, background: "rgba(0,0,0,.2)", borderRadius: 14, padding: 16, marginBottom: 16, border: "1px solid rgba(255,255,255,.04)" }}>
+                  <p style={{ color: "rgba(255,255,255,.6)", fontSize: 14, lineHeight: 1.6, margin: 0, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    &quot;{p.prompt}&quot;
+                  </p>
+                </div>
+
+                {p.tools && p.tools.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+                    {p.tools.map((tool, i) => (
+                      <div key={i} title={tool.toolUrl} style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", display: "grid", placeItems: "center", overflow: "hidden" }}>
+                        {tool.iconUrl ? <img src={tool.iconUrl} style={{ width: "100%", height: "100%", objectFit: "cover" }} referrerPolicy="no-referrer" /> : <span style={{ fontSize: 12 }}>🔗</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <button 
+                    onClick={() => handleCopy(p.prompt, p.id)}
+                    style={{ height: 44, borderRadius: 12, border: "none", background: copiedId === p.id ? "#00C48C" : "rgba(255,255,255,.08)", color: copiedId === p.id ? "#000" : "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: ".2s" }}
+                  >
+                    {copiedId === p.id ? <Check size={14} /> : <Copy size={14} />} {copiedId === p.id ? "Copied" : "Copy"}
+                  </button>
+                  <button 
+                    onClick={() => setSel(p)}
+                    style={{ height: 44, borderRadius: 12, border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)", color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  >
+                    <Maximize2 size={14} /> Expand
+                  </button>
+                </div>
+                <button 
+                  onClick={() => generatePromptPDF(p)}
+                  style={{ width: "100%", marginTop: 10, height: 40, borderRadius: 12, border: "none", background: "transparent", color: "rgba(255,255,255,.4)", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  onMouseEnter={e => e.currentTarget.style.color = G}
+                  onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,.4)"}
+                >
+                  <Download size={14} /> Download PDF Guide
+                </button>
+              </div>
+            </TiltCard>
+          ))}
         </div>
       </W>
     </section>
   );
 }
 
+// ── Support & Newsletter ──────────────────────────────
+function SupportForm() {
+  const [form, setForm] = useState({ name: "", email: "", topic: "General", message: "" });
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, "support_messages", Date.now().toString()), {
+          ...form,
+          createdAt: serverTimestamp()
+        });
+      }
+      setSent(true);
+      confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+    } catch (err) {
+      console.error(err);
+      alert("Samahani, imeshindikana kutuma ujumbe.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (sent) return (
+    <div style={{ textAlign: "center", padding: "40px 20px" }}>
+      <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(0,196,140,.1)", color: "#00C48C", display: "grid", placeItems: "center", margin: "0 auto 20px" }}><Check size={32} /></div>
+      <h3 style={{ fontSize: 24, marginBottom: 10 }}>Asante!</h3>
+      <p style={{ color: "rgba(255,255,255,.6)" }}>Ujumbe wako umepokelewa. Tutajibu hivi karibuni.</p>
+      <button onClick={() => setSent(false)} style={{ marginTop: 20, color: G, background: "none", border: "none", fontWeight: 800, cursor: "pointer" }}>Tuma ujumbe mwingine</button>
+    </div>
+  );
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Jina lako" style={{ height: 50, borderRadius: 14, border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.05)", color: "#fff", padding: "0 16px", outline: "none" }} />
+        <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="Email yako" style={{ height: 50, borderRadius: 14, border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.05)", color: "#fff", padding: "0 16px", outline: "none" }} />
+      </div>
+      <select value={form.topic} onChange={e => setForm({ ...form, topic: e.target.value })} style={{ height: 50, borderRadius: 14, border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.05)", color: "#fff", padding: "0 16px", outline: "none" }}>
+        <option value="General">General Inquiry</option>
+        <option value="Courses">Courses Support</option>
+        <option value="Deals">Deals/Affiliate</option>
+        <option value="Technical">Technical Issue</option>
+      </select>
+      <textarea required value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder="Ujumbe wako..." style={{ height: 120, borderRadius: 14, border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.05)", color: "#fff", padding: "16px", outline: "none", resize: "none" }} />
+      <button disabled={loading} style={{ height: 54, borderRadius: 16, border: "none", background: `linear-gradient(135deg,${G},${G2})`, color: "#111", fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+        {loading ? "Inatuma..." : <><Send size={18} /> Tuma Ujumbe</>}
+      </button>
+    </form>
+  );
+}
+
+function NewsletterForm() {
+  return (
+    <motion.section 
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.8 }}
+      style={{ 
+        padding: "100px 0", 
+        background: "#05060a", 
+        borderTop: "1px solid rgba(255,255,255,0.05)",
+        position: "relative",
+        overflow: "hidden"
+      }}
+    >
+      {/* Subtle Glow */}
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "80%",
+        height: "80%",
+        background: "radial-gradient(circle, rgba(245,166,35,0.06) 0%, transparent 70%)",
+        filter: "blur(80px)",
+        pointerEvents: "none",
+        zIndex: 0
+      }} />
+
+      <W>
+        <div style={{ 
+          position: "relative",
+          zIndex: 1,
+          maxWidth: 800,
+          margin: "0 auto",
+          textAlign: "center"
+        }}>
+          <h2 style={{ 
+            fontFamily: "'Bricolage Grotesque', sans-serif", 
+            fontSize: "clamp(32px, 5vw, 48px)", 
+            marginBottom: 16,
+            letterSpacing: "-0.03em",
+            color: "#fff"
+          }}>
+            Jiunge na <span style={{ color: G }}>STEA Newsletter</span>
+          </h2>
+          <p style={{ 
+            fontSize: "clamp(16px, 2vw, 18px)", 
+            color: "rgba(255,255,255,0.7)", 
+            marginBottom: 32,
+            lineHeight: 1.6
+          }}>
+            Pata tech tips, courses na updates mpya kila siku
+          </p>
+
+          <div style={{ 
+            background: "rgba(255,255,255,0.03)", 
+            borderRadius: 24, 
+            padding: "12px", 
+            border: "1px solid rgba(255,255,255,0.08)",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+            overflow: "hidden",
+            display: "flex",
+            justifyContent: "center"
+          }}>
+            <iframe 
+              width="540" 
+              height="305" 
+              src="https://8a2374dd.sibforms.com/serve/MUIFAGZR8_KuVimiiaB4VRbn_jum3slVhVnj0whoh9aEwMBVNYx41VMz5boVmclj3oBfyTIx0eWvOtqoxrzUwuMs_WhmpapKONkACfI3eivQYqjywjxuCK-svny75AYLg3jmz8HZimADld83jxEQBzcucbx3sCeoVdk7yK-2hrL4nS7pbD-N8X7Rv03HiVnFeGUUQUCKIh5RNzbmtg==" 
+              frameBorder="0" 
+              scrolling="auto" 
+              allowFullScreen 
+              style={{ 
+                display: "block",
+                maxWidth: "100%",
+                borderRadius: 12
+              }}
+            ></iframe>
+          </div>
+
+          <p style={{ 
+            marginTop: 20, 
+            fontSize: 13, 
+            color: "rgba(255,255,255,0.4)",
+            fontWeight: 500
+          }}>
+            Hakuna spam. Unaweza kujiondoa muda wowote.
+          </p>
+        </div>
+      </W>
+    </motion.section>
+  );
+}
+
+function SupportLauncher() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowTooltip(true);
+      setTimeout(() => setShowTooltip(false), 8000);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const openWhatsApp = () => {
+    window.open("https://wa.me/8619715852043?text=Habari%20STEA%20%F0%9F%91%8B%20Nimeona%20website%20yenu%20na%20nahitaji%20msaada%20kuhusu%20kozi%20au%20services.%20Naomba%20maelezo%20zaidi.", "_blank");
+    setIsOpen(false);
+  };
+
+  const openEmail = () => {
+    window.location.href = "mailto:swahilitecheliteacademy@gmail.com?subject=STEA%20Support&body=Habari%20STEA,%20nahitaji%20msaada%20kuhusu...";
+    setIsOpen(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", bottom: 30, right: 30, zIndex: 1000 }}>
+      <AnimatePresence>
+        {showTooltip && !isOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: 20, scale: 0.8 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            style={{
+              position: "absolute",
+              bottom: 80,
+              right: 0,
+              background: "#F5A623",
+              color: "#111",
+              padding: "10px 20px",
+              borderRadius: "16px 16px 0 16px",
+              fontSize: 14,
+              fontWeight: 800,
+              whiteSpace: "nowrap",
+              boxShadow: "0 12px 32px rgba(245,166,35,0.4)",
+              pointerEvents: "none",
+              zIndex: 1002
+            }}
+          >
+            Unahitaji msaada?
+            <div style={{ position: "absolute", bottom: -8, right: 0, width: 16, height: 16, background: "#F5A623", clipPath: "polygon(0 0, 100% 0, 100% 100%)" }} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20, transformOrigin: "bottom right" }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            style={{
+              position: "absolute",
+              bottom: 85,
+              right: 0,
+              width: "calc(100vw - 60px)",
+              maxWidth: 340,
+              background: "rgba(10, 11, 15, 0.85)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              border: "1px solid rgba(245, 166, 35, 0.25)",
+              borderRadius: 28,
+              padding: 24,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+              color: "#fff",
+              zIndex: 1003
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+              <div>
+                <h3 style={{ fontSize: 22, fontWeight: 900, color: "#F5A623", margin: 0, letterSpacing: "-0.02em" }}>STEA Support</h3>
+                <p style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", margin: "6px 0 0", lineHeight: 1.4 }}>Karibu, unahitaji msaada gani?</p>
+              </div>
+              <button 
+                onClick={() => setIsOpen(false)}
+                style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "#fff", width: 36, height: 36, borderRadius: "50%", display: "grid", placeItems: "center", cursor: "pointer", transition: "0.2s" }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: 14 }}>
+              <button 
+                onClick={openWhatsApp}
+                style={{
+                  background: "linear-gradient(135deg, rgba(37, 211, 102, 0.1), rgba(37, 211, 102, 0.05))",
+                  border: "1px solid rgba(37, 211, 102, 0.2)",
+                  borderRadius: 20,
+                  padding: 20,
+                  textAlign: "left",
+                  cursor: "pointer",
+                  transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 18,
+                  width: "100%",
+                  color: "inherit",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = "linear-gradient(135deg, rgba(37, 211, 102, 0.15), rgba(37, 211, 102, 0.08))";
+                  e.currentTarget.style.borderColor = "rgba(37, 211, 102, 0.5)";
+                  e.currentTarget.style.transform = "translateY(-4px) scale(1.02)";
+                  e.currentTarget.style.boxShadow = "0 12px 24px rgba(37, 211, 102, 0.2)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = "linear-gradient(135deg, rgba(37, 211, 102, 0.1), rgba(37, 211, 102, 0.05))";
+                  e.currentTarget.style.borderColor = "rgba(37, 211, 102, 0.2)";
+                  e.currentTarget.style.transform = "translateY(0) scale(1)";
+                  e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
+                }}
+              >
+                <div style={{ width: 48, height: 48, borderRadius: 16, background: "#25D366", display: "grid", placeItems: "center", color: "#fff", flexShrink: 0, boxShadow: "0 8px 16px rgba(37, 211, 102, 0.3)" }}>
+                  <MessageCircle size={24} fill="currentColor" />
+                </div>
+                <div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", letterSpacing: "-0.01em" }}>WhatsApp Support</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 2, fontWeight: 500 }}>Msaada wa haraka (Primary)</div>
+                </div>
+                <ChevronRight size={18} style={{ marginLeft: "auto", opacity: 0.4 }} />
+              </button>
+
+              <button 
+                onClick={openEmail}
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 20,
+                  padding: 20,
+                  textAlign: "left",
+                  cursor: "pointer",
+                  transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 18,
+                  width: "100%",
+                  color: "inherit"
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                  e.currentTarget.style.borderColor = "rgba(245, 166, 35, 0.3)";
+                  e.currentTarget.style.transform = "translateY(-4px) scale(1.02)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+                  e.currentTarget.style.transform = "translateY(0) scale(1)";
+                }}
+              >
+                <div style={{ width: 48, height: 48, borderRadius: 16, background: "rgba(245, 166, 35, 0.12)", display: "grid", placeItems: "center", color: "#F5A623", flexShrink: 0, border: "1px solid rgba(245, 166, 35, 0.2)" }}>
+                  <Mail size={24} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", letterSpacing: "-0.01em" }}>Email Support</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 2, fontWeight: 500 }}>Msaada wa ziada (Backup)</div>
+                </div>
+                <ChevronRight size={18} style={{ marginLeft: "auto", opacity: 0.3 }} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <motion.button
+        onClick={() => setIsOpen(!isOpen)}
+        animate={{ 
+          y: isOpen ? 0 : [0, -6, 0],
+          rotate: isOpen ? 0 : [0, 2, -2, 0]
+        }}
+        transition={{ 
+          y: { duration: 4, repeat: Infinity, ease: "easeInOut" },
+          rotate: { duration: 6, repeat: Infinity, ease: "easeInOut" }
+        }}
+        whileHover={{ scale: 1.08, boxShadow: "0 16px 40px rgba(245, 166, 35, 0.5)" }}
+        whileTap={{ scale: 0.92 }}
+        style={{
+          width: 68,
+          height: 68,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #F5A623, #D48806)",
+          color: "#111",
+          border: "none",
+          display: "grid",
+          placeItems: "center",
+          cursor: "pointer",
+          boxShadow: "0 14px 36px rgba(245, 166, 35, 0.45), inset 0 2px 4px rgba(255,255,255,0.4)",
+          zIndex: 1004,
+          position: "relative",
+          outline: "none"
+        }}
+      >
+        <motion.div
+          animate={{ rotate: isOpen ? 90 : 0, scale: isOpen ? 0.85 : 1 }}
+          transition={{ type: "spring", stiffness: 260, damping: 20 }}
+        >
+          {isOpen ? <X size={32} strokeWidth={2.5} /> : <MessageCircle size={32} strokeWidth={2.5} />}
+        </motion.div>
+        
+        {!isOpen && (
+          <motion.div
+            animate={{ scale: [1, 1.3, 1], opacity: [0.6, 0, 0.6] }}
+            transition={{ duration: 2.5, repeat: Infinity }}
+            style={{
+              position: "absolute",
+              inset: -6,
+              borderRadius: "50%",
+              border: "2px solid #F5A623",
+              pointerEvents: "none"
+            }}
+          />
+        )}
+      </motion.button>
+    </div>
+  );
+}
+
+// ── Legal & Trust Pages ──────────────────────────────
+function AboutPage() {
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead title="Kuhusu" hi="STEA" copy="SwahiliTech Elite Academy (STEA) ni jukwaa namba moja la teknolojia kwa lugha ya Kiswahili." />
+        <div style={{ maxWidth: 800, margin: "0 auto", color: "rgba(255,255,255,.7)", lineHeight: 1.8, fontSize: 17 }}>
+          <p>STEA ilianzishwa kwa lengo la kuziba pengo la maarifa ya kiteknolojia kwa jamii inayozungumza Kiswahili duniani kote. Tunaamini kuwa lugha isiwemo kikwazo cha mtu kujifunza AI, Coding, Digital Marketing, na stadi nyingine za kisasa.</p>
+          <h3 style={{ color: "#fff", marginTop: 40, marginBottom: 20 }}>Dira Yetu</h3>
+          <p>Kuwa kitovu kikuu cha maarifa ya kiteknolojia Afrika Mashariki na Kati, tukitoa mafunzo bora na rasilimali zinazomwezesha kila mtu kufanikiwa katika ulimwengu wa kidijitali.</p>
+          <h3 style={{ color: "#fff", marginTop: 40, marginBottom: 20 }}>Tunachofanya</h3>
+          <ul style={{ display: "grid", gap: 12, paddingLeft: 20 }}>
+            <li>Mafunzo ya AI na Prompt Engineering</li>
+            <li>Tech Updates za kila siku</li>
+            <li>Deals na Ofa za vifaa vya kiteknolojia</li>
+            <li>Miongozo ya kutengeneza pesa mtandaoni</li>
+          </ul>
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function ContactPage() {
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead title="Wasiliana" hi="Nasi" copy="Una swali, maoni au unahitaji msaada? Tuandikie ujumbe hapa chini." />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 60, marginTop: 40 }}>
+          <div>
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ color: G, fontWeight: 800, textTransform: "uppercase", fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>Email</div>
+              <div style={{ fontSize: 18, color: "#fff" }}>support@stea.co.tz</div>
+            </div>
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ color: G, fontWeight: 800, textTransform: "uppercase", fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>WhatsApp</div>
+              <div style={{ fontSize: 18, color: "#fff" }}>+255 768 260 933</div>
+            </div>
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ color: G, fontWeight: 800, textTransform: "uppercase", fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>Location</div>
+              <div style={{ fontSize: 18, color: "#fff" }}>Dar es Salaam, Tanzania</div>
+            </div>
+          </div>
+          <div style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 32, padding: 40 }}>
+            <SupportForm />
+          </div>
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function FAQPage() {
+  const faqs = [
+    { q: "STEA ni nini?", a: "STEA ni SwahiliTech Elite Academy, jukwaa linalotoa mafunzo na rasilimali za kiteknolojia kwa Kiswahili." },
+    { q: "Je, mafunzo ni ya bure?", a: "Tuna mafunzo ya bure na ya kulipia (Premium). Mafunzo ya kulipia yana undani zaidi na cheti." },
+    { q: "Nawezaje kupata deals?", a: "Tembelea sehemu ya 'Deals' kupata ofa za hivi karibuni za vifaa na huduma za tech." },
+    { q: "Mnafanya kazi saa ngapi?", a: "Huduma zetu za mtandaoni zinapatikana 24/7. Support inapatikana kuanzia saa 2 asubuhi hadi saa 11 jioni." }
+  ];
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead title="Maswali" hi="mnayouliza sana" copy="Pata majibu ya haraka kwa maswali yanayoulizwa mara kwa mara." />
+        <div style={{ maxWidth: 800, margin: "40px auto", display: "grid", gap: 16 }}>
+          {faqs.map((f, i) => (
+            <motion.div 
+              key={i} 
+              initial={{ opacity: 0, y: 10 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.05 }}
+              style={{ 
+                background: "rgba(255,255,255,.03)", 
+                border: "1px solid rgba(255,255,255,.08)", 
+                borderRadius: 24, 
+                padding: 32,
+                transition: "all 0.3s ease"
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = "rgba(255,255,255,.05)";
+                e.currentTarget.style.borderColor = "rgba(245,166,35,0.2)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "rgba(255,255,255,.03)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,.08)";
+              }}
+            >
+              <h4 style={{ color: G, fontSize: 20, fontWeight: 800, marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                <HelpCircle size={20} /> {f.q}
+              </h4>
+              <p style={{ color: "rgba(255,255,255,.6)", margin: 0, lineHeight: 1.8, fontSize: 16 }}>{f.a}</p>
+            </motion.div>
+          ))}
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function PrivacyPage() {
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead title="Privacy" hi="Policy" copy="Sera yetu ya faragha na jinsi tunavyolinda data zako." />
+        <div style={{ maxWidth: 800, margin: "0 auto", color: "rgba(255,255,255,.7)", lineHeight: 1.8 }}>
+          <p>Tunachukulia faragha yako kwa uzito mkubwa. Maelezo yote unayotoa (kama email unapo-subscribe) yanatumika tu kwa mawasiliano ya STEA na hayatauzwa kwa upande wa tatu.</p>
+          <h3 style={{ color: "#fff", marginTop: 30 }}>Data Tunazokusanya</h3>
+          <p>Tunakusanya maelezo ya msingi kama jina na email unapotumia fomu zetu za mawasiliano au kujiunga na newsletter.</p>
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function TermsPage() {
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead title="Terms" hi="of Use" copy="Masharti ya matumizi ya jukwaa la STEA." />
+        <div style={{ maxWidth: 800, margin: "0 auto", color: "rgba(255,255,255,.7)", lineHeight: 1.8 }}>
+          <p>Kwa kutumia tovuti hii, unakubaliana na masharti yafuatayo:</p>
+          <ul style={{ paddingLeft: 20 }}>
+            <li>Maudhui yote ni mali ya STEA na hayaruhusiwi kunakiliwa bila idhini.</li>
+            <li>Unawajibika kwa usalama wa akaunti yako.</li>
+            <li>STEA haina dhima kwa hasara yoyote inayotokana na matumizi ya taarifa hapa.</li>
+          </ul>
+        </div>
+      </W>
+    </section>
+  );
+}
+const getWhatsAppLink = (course) => {
+  const number = course.adminWhatsAppNumber || "255768260933";
+  const price = course.newPrice || course.price || "Bure";
+  const defaultMsg = `Habari STEA, nataka kujiunga na kozi ya: ${course.title} yenye bei ya ${price}.\n\nNaomba maelekezo ya jinsi ya kuanza na utaratibu wa malipo.`;
+  const msg = course.customWhatsAppMessageTemplate || defaultMsg;
+  return `https://wa.me/${number.replace(/\+/g, "")}?text=${encodeURIComponent(msg)}`;
+};
+
+const CourseCard = ({ item, goPage }) => {
+  return (
+    <TiltCard style={{ overflow: "hidden" }}>
+      <div onClick={() => goPage && goPage("course-detail", item)} style={{ cursor: "pointer" }}>
+        <div style={{ position: "relative", aspectRatio: "16/9", overflow: "hidden" }}>
+          <img src={item.imageUrl || `https://picsum.photos/seed/${item.id}/800/450`} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} referrerPolicy="no-referrer" />
+          {item.badge && (
+            <div style={{ position: "absolute", top: 12, left: 12, background: G, color: "#000", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1, zIndex: 2 }}>
+              {item.badge}
+            </div>
+          )}
+          <div style={{ position: "absolute", top: 12, right: 12, background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)", padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, color: "#fff", border: "1px solid rgba(255,255,255,.2)", zIndex: 2 }}>
+            {item.level || "All Levels"}
+          </div>
+        </div>
+        <div style={{ padding: 20, position: "relative", marginTop: -20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, color: G, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+            <Star size={14} fill={G} />
+            <span>{item.rating || "5.0"}</span>
+            <span style={{ opacity: .5 }}>•</span>
+            <span>{item.studentsCount || "100+"} Students</span>
+          </div>
+          <h4 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8, lineHeight: 1.4 }}>{item.title}</h4>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,.5)", marginBottom: 16, lineHeight: 1.6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.desc}</p>
+          
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {item.oldPrice && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", textDecoration: "line-through" }}>{item.oldPrice}</span>}
+              <span style={{ fontSize: 20, fontWeight: 900, color: G }}>{item.price}</span>
+            </div>
+            <button 
+              onClick={() => goPage && goPage("course-detail", item)}
+              style={{ 
+                background: `linear-gradient(135deg, ${G}, ${G2})`, 
+                color: "#111", 
+                border: "none", 
+                padding: "10px 18px", 
+                borderRadius: 12, 
+                fontWeight: 800, 
+                fontSize: 13, 
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "0.3s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = "translateX(4px)"}
+              onMouseLeave={e => e.currentTarget.style.transform = "translateX(0)"}
+            >
+              Jiunge Sasa <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </TiltCard>
+  );
+};
+
 function HomePage({goPage}){
-  const { docs: tips, loading: tipsLoading } = useCollection("tips", "createdAt");
-  const { docs: updates, loading: updatesLoading } = useCollection("updates", "createdAt");
+  const { docs: tips, loading: tipsLoading } = useCollection("tips", "createdAt", 10);
+  const { docs: updates, loading: updatesLoading } = useCollection("updates", "createdAt", 10);
+  const { docs: deals } = useCollection("deals", "createdAt", 10);
+  const { docs: courses } = useCollection("courses", "createdAt", 10);
+  const { docs: prompts, loading: promptsLoading } = useCollection("prompts", "createdAt", 10);
 
   const [art, setArt] = useState(null);
   const [vid, setVid] = useState(null);
 
+  const featuredPrompt = prompts.length > 0 ? prompts[0] : FALLBACK_PROMPTS[0];
+  const featuredDeal = deals.length > 0 ? deals[0] : null;
   const featuredTips = tips.length > 0 ? tips.slice(0, 3) : FALLBACK_TIPS.slice(0, 3);
   const featuredUpdates = updates.length > 0 ? updates.slice(0, 3) : FALLBACK_UPDATES.slice(0, 3);
+  const featuredCourses = courses.length > 0 ? courses.slice(0, 3) : FALLBACK_COURSES.slice(0, 3);
 
   return(<section style={{padding:"22px 0 16px"}}><W>
     {art && <ArticleModal article={art} onClose={() => setArt(null)} />}
     {vid && <VideoModal video={vid} onClose={() => setVid(null)} />}
 
     <div style={{marginBottom:16,borderRadius:20,border:"1px dashed rgba(245,166,35,.22)",background:"rgba(245,166,35,.06)",padding:"13px 18px",textAlign:"center",color:"rgba(255,255,255,.55)",fontSize:14}}>📢 Nafasi ya Google AdSense — matangazo kwa mapato ya STEA</div>
-    <div style={{position:"relative",overflow:"hidden",borderRadius:30,border:"1px solid rgba(255,255,255,.07)",padding:"clamp(30px,5vw,62px) clamp(20px,4vw,52px) clamp(36px,5vw,54px)",background:"radial-gradient(circle at 18% 22%,rgba(245,166,35,.15),transparent 22%),radial-gradient(circle at 78% 28%,rgba(91,200,255,.17),transparent 24%),linear-gradient(135deg,#0d1019,#090b12,#0f1320)",boxShadow:"0 28px 80px rgba(0,0,0,.4)"}}>
+    <div style={{position:"relative",overflow:"hidden",borderRadius:30,border:"1px solid rgba(255,255,255,.07)",padding:"clamp(30px,5vw,62px) clamp(20px,4vw,52px) clamp(36px,5vw,54px)",background:"radial-gradient(circle at 18% 22%,rgba(245,166,35,.12),transparent 30%),radial-gradient(circle at 78% 28%,rgba(86,183,255,.12),transparent 35%),radial-gradient(circle at 50% 50%,rgba(147,51,234,.08),transparent 50%),linear-gradient(135deg,#05060a,#090b12,#05060a)",boxShadow:"0 28px 80px rgba(0,0,0,.6)"}}>
       <StarCanvas/>
+      <EarthHero/>
       
-      {/* 3D Robotic Hand Animation */}
-      <motion.div
-        initial={{ x: "100%", y: "50%", scale: 2, rotate: -20, opacity: 0 }}
-        animate={{ x: "30%", y: "10%", scale: 1, rotate: 0, opacity: 0.4 }}
-        transition={{ duration: 4, ease: "easeOut" }}
-        style={{
-          position: "absolute",
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: "60%",
-          zIndex: 1,
-          pointerEvents: "none",
-          backgroundImage: "url('https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=800&h=800&fit=crop&q=80')",
-          backgroundSize: "contain",
-          backgroundPosition: "right center",
-          backgroundRepeat: "no-repeat",
-          mixBlendMode: "screen",
-          maskImage: "linear-gradient(to left, black 50%, transparent 100%)",
-          WebkitMaskImage: "linear-gradient(to left, black 50%, transparent 100%)"
-        }}
-      />
+      <div style={{
+        position: "absolute",
+        bottom: -20,
+        left: 0,
+        right: 0,
+        height: "35%",
+        background: "url('https://www.transparenttextures.com/patterns/dark-matter.png'), linear-gradient(to top, rgba(255,255,255,0.08), transparent)",
+        opacity: 0.5,
+        pointerEvents: "none",
+        zIndex: 1,
+        maskImage: "linear-gradient(to top, black 20%, transparent 90%)",
+        WebkitMaskImage: "linear-gradient(to top, black 20%, transparent 90%)"
+      }} />
 
-      <div style={{position:"relative",zIndex:2,maxWidth:680}}>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, delay: 2 }}
-        >
-          <div style={{display:"inline-flex",alignItems:"center",gap:8,borderRadius:999,padding:"8px 16px",border:"1px solid rgba(245,166,35,.22)",background:"rgba(245,166,35,.08)",color:G,fontSize:11,fontWeight:900,textTransform:"uppercase",letterSpacing:".12em",marginBottom:18}}>🚀 STEA · Learn · Build · Grow · Tanzania</div>
-          <h1 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:"clamp(46px,7vw,106px)",lineHeight:.88,letterSpacing:"-.07em",margin:"0 0 14px"}}><span style={{display:"block"}}>SwahiliTech</span><span style={{display:"block",background:"linear-gradient(135deg,#F5A623,#FFD17C)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Elite Academy</span></h1>
-          <div style={{fontSize:"clamp(15px,2vw,28px)",fontWeight:800,letterSpacing:"-.03em",color:"rgba(255,255,255,.86)",margin:"0 0 6px"}}>Teknolojia kwa Kiswahili 🇹🇿</div>
-        </motion.div>
+      <div style={{position:"relative",zIndex:2,maxWidth:760}}>
+        <div style={{display:"inline-flex",alignItems:"center",gap:8,borderRadius:999,padding:"8px 16px",border:"1px solid rgba(245,166,35,.22)",background:"rgba(245,166,35,.08)",color:G,fontSize:11,fontWeight:900,textTransform:"uppercase",letterSpacing:".12em",marginBottom:18}}>🚀 STEA · Learn · Build · Grow · Tanzania</div>
+        <h1 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:"clamp(46px,7vw,106px)",lineHeight:.88,letterSpacing:"-.07em",margin:"0 0 14px"}}><span style={{display:"block"}}>SwahiliTech</span><span style={{display:"block",background:`linear-gradient(135deg,${G},${G2})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Elite Academy</span></h1>
+        <div style={{fontSize:"clamp(15px,2vw,28px)",fontWeight:800,letterSpacing:"-.03em",color:"rgba(255,255,255,.86)",margin:"0 0 6px"}}>Teknolojia kwa Kiswahili 🇹🇿</div>
         <TypedText/>
-        <p style={{maxWidth:560,lineHeight:1.9,color:"rgba(255,255,255,.65)",fontSize:15,margin:0}}>STEA inaleta tech tips, updates, deals, electronics, websites za kijanja na kozi za kisasa kwa lugha rahisi ya Kiswahili — platform ya kwanza ya tech kwa Watanzania.</p>
+        <p style={{maxWidth:560,lineHeight:1.9,color:"rgba(255,255,255,.65)",fontSize:16,margin:"0 0 10px", fontWeight: 500}}>STEA inaleta tech tips, updates, deals, electronics, na kozi za kisasa kwa lugha rahisi ya Kiswahili — platform ya kwanza ya tech kwa Watanzania.</p>
+        <p style={{color: G, fontSize: 18, fontWeight: 900, marginBottom: 28, letterSpacing: "-0.01em"}}>“Mwaka 2026 ni mwaka wako wa kupata pesa kupitia skills za teknolojia.”</p>
         <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:28,alignItems:"center"}}>
-          <PushBtn onClick={()=>goPage("tips")}>⚡ Explore Content →</PushBtn>
-          <button onClick={()=>goPage("courses")} style={{border:"1px solid rgba(255,255,255,.14)",cursor:"pointer",borderRadius:18,padding:"14px 26px",fontWeight:900,fontSize:15,color:"#fff",background:"rgba(255,255,255,.05)"}}>🎓 Angalia Kozi</button>
+          <PushBtn onClick={()=>goPage("courses")}>🎓 Chagua Kozi Yako →</PushBtn>
+          <button onClick={()=>goPage("tips")} style={{border:"1px solid rgba(255,255,255,.14)",cursor:"pointer",borderRadius:18,padding:"14px 26px",fontWeight:900,fontSize:15,color:"#fff",background:"rgba(255,255,255,.05)", transition: "0.3s"}} onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"} onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}>⚡ Explore Content</button>
         </div>
         <div style={{marginTop:38,display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderRadius:24,overflow:"hidden",border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.05)",backdropFilter:"blur(10px)",maxWidth:620}}>
           {[{v:<Counter target={200}/>,l:"Monthly Readers"},{v:<Counter target={1200}/>,l:"Articles"},{v:<Counter target={45}/>,l:"TZ Creators"},{v:"24/7",l:"Live Updates"}].map((st,i)=>(<div key={i} style={{padding:"18px 10px",textAlign:"center",borderRight:i<3?"1px solid rgba(255,255,255,.08)":"none"}}><div style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:"clamp(20px,2.6vw,32px)",color:G,marginBottom:5,fontWeight:800}}>{st.v}</div><div style={{fontSize:11,color:"rgba(255,255,255,.42)",fontWeight:700,lineHeight:1.3}}>{st.l}</div></div>))}
@@ -1061,8 +2036,44 @@ function HomePage({goPage}){
       </div>
     </div>
 
+    {/* Featured Prompt */}
+    <div style={{marginTop:80,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:40,alignItems:"center"}}>
+      <motion.div initial={{opacity:0,x:-20}} whileInView={{opacity:1,x:0}}>
+        <span style={{color:G,fontWeight:900,fontSize:12,textTransform:"uppercase",letterSpacing:2,marginBottom:12,display:"block"}}>Featured Prompt</span>
+        <h2 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:38,margin:"0 0 16px",letterSpacing:"-.04em"}}>Nguvu ya AI mkononi mwako.</h2>
+        <p style={{color:"rgba(255,255,255,.6)",fontSize:16,lineHeight:1.7,marginBottom:24}}>Tumia prompts zetu zilizojaribiwa kupata matokeo bora zaidi kutoka kwa ChatGPT na Gemini kwa Kiswahili.</p>
+        <GoldBtn onClick={()=>goPage("prompts")}>Gundua Prompt Lab <ChevronRight size={18}/></GoldBtn>
+      </motion.div>
+      {promptsLoading ? <Skeleton type="prompt"/> : featuredPrompt && (
+        <TiltCard>
+          <div style={{position:"relative", aspectRatio:"16/9", background: "rgba(255,255,255,.03)", borderBottom:"1px solid rgba(255,255,255,.07)", overflow: "hidden"}}>
+            <img 
+              src={featuredPrompt.imageUrl || `https://picsum.photos/seed/${featuredPrompt.id}/800/450`} 
+              alt={featuredPrompt.title} 
+              referrerPolicy="no-referrer"
+              style={{ width: "100%", height: "100%", objectFit: "cover", position: "absolute", inset: 0 }}
+              onError={(e) => {
+                e.target.src = `https://picsum.photos/seed/stea-${featuredPrompt.id}/800/450`;
+              }}
+            />
+            <div style={{position:"absolute", inset:0, background:"linear-gradient(to bottom, transparent, rgba(0,0,0,.4))"}}/>
+            <div style={{position:"absolute", top:14, left:14, zIndex:2}}>
+              <span style={{padding:"5px 12px", borderRadius:99, fontSize:10, fontWeight:900, ...BS.gold, textTransform:"uppercase", letterSpacing:1}}>{featuredPrompt.category}</span>
+            </div>
+          </div>
+          <div style={{padding:24}}>
+            <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:24,margin:"0 0 12px",letterSpacing:"-.02em",lineHeight:1.3}}>{featuredPrompt.title}</h3>
+            <div style={{background:"rgba(0,0,0,.3)",padding:16,borderRadius:12,border:"1px solid rgba(255,255,255,.05)",fontStyle:"italic",color:"rgba(255,255,255,.6)",fontSize:14,lineHeight:1.6, marginBottom: 20}}>
+              &quot;{featuredPrompt.prompt.substring(0,140)}...&quot;
+            </div>
+            <GoldBtn onClick={()=>goPage("prompts")}>Gundua Prompt Lab <ChevronRight size={18}/></GoldBtn>
+          </div>
+        </TiltCard>
+      )}
+    </div>
+
     {/* Featured Tech Tips */}
-    <div style={{marginTop:64}}>
+    <div style={{marginTop:80}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24,gap:16,flexWrap:"wrap"}}>
         <SHead title="Featured" hi="Tech Tips" copy="Maujanja ya Android, AI na PC kwa Kiswahili."/>
         <button onClick={()=>goPage("tips")} style={{border:"none",background:"transparent",color:G,fontWeight:800,fontSize:14,cursor:"pointer",padding:"10px 0"}}>View All Tips →</button>
@@ -1076,36 +2087,57 @@ function HomePage({goPage}){
       </div>
     </div>
 
+    {/* Featured Deal */}
+    {featuredDeal && (
+      <div style={{marginTop:80,background:"rgba(245,166,35,.03)",borderRadius:32,border:"1px solid rgba(245,166,35,.1)",padding:40,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:40,alignItems:"center"}}>
+        <div style={{order:window.innerWidth<800?2:1}}>
+          <span style={{color:G,fontWeight:900,fontSize:12,textTransform:"uppercase",letterSpacing:2,marginBottom:12,display:"block"}}>Limited Time Deal</span>
+          <h2 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:38,margin:"0 0 16px",letterSpacing:"-.04em"}}>Okoa pesa na Tech Deals bora.</h2>
+          <p style={{color:"rgba(255,255,255,.6)",fontSize:16,lineHeight:1.7,marginBottom:24}}>Tunakuletea ofa kali za vifaa na huduma za tech kutoka vyanzo vinavyoaminika Tanzania.</p>
+          <GoldBtn onClick={()=>goPage("deals")}>Tazama Deals Zote <ChevronRight size={18}/></GoldBtn>
+        </div>
+        <div style={{order:window.innerWidth<800?1:2}}>
+          <TiltCard>
+            <div style={{display:"flex",height:280,overflow:"hidden"}}>
+              <div style={{width:"40%"}}><img src={featuredDeal.imageUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} referrerPolicy="no-referrer"/></div>
+              <div style={{width:"60%",padding:24,display:"flex",flexDirection:"column"}}>
+                <span style={{color:G,fontWeight:900,fontSize:10,textTransform:"uppercase"}}>{featuredDeal.badge}</span>
+                <h3 style={{fontSize:20,margin:"8px 0 12px"}}>{featuredDeal.title}</h3>
+                <div style={{fontSize:24,fontWeight:900,color:G,marginBottom:16}}>{featuredDeal.price}</div>
+                <div style={{marginTop:"auto"}}><GoldBtn onClick={()=>window.open(featuredDeal.affiliateUrl)} style={{fontSize:12,padding:"10px 20px"}}>Buy Now</GoldBtn></div>
+              </div>
+            </div>
+          </TiltCard>
+        </div>
+      </div>
+    )}
+
     {/* Featured Tech Updates */}
-    <div style={{marginTop:64}}>
+    <div style={{marginTop:80}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24,gap:16,flexWrap:"wrap"}}>
         <SHead title="Latest" hi="Tech Updates" copy="Habari mpya za tech kutoka kila pembe ya dunia."/>
         <button onClick={()=>goPage("habari")} style={{border:"none",background:"transparent",color:G,fontWeight:800,fontSize:14,cursor:"pointer",padding:"10px 0"}}>View All News →</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:22}}>
         {updatesLoading ? [1,2,3].map(i=><Skeleton key={i}/>) : featuredUpdates.map(item => (
-          <TiltCard key={item.id}>
-            <div style={{padding:"16px 18px 10px",background:"linear-gradient(135deg,rgba(245,166,35,.08),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",display:"flex",gap:12,alignItems:"flex-start"}}>
-              <div style={{fontSize:42,filter:"drop-shadow(0 4px 12px rgba(0,0,0,.5))"}}>{item.thumb}</div>
-              <div><span style={{display:"inline-block",padding:"4px 10px",borderRadius:999,fontSize:11,fontWeight:800,...BS.gold}}>{item.badge}</span><div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:4}}>{item.category}</div></div>
-            </div>
-            <div style={{padding:18}}>
-              <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:17,margin:"0 0 9px",letterSpacing:"-.03em",lineHeight:1.25}}>{item.title}</h3>
-              <p style={{color:"rgba(255,255,255,.62)",fontSize:14,lineHeight:1.75,margin:"0 0 12px"}}>{item.summary}</p>
-              <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:14}}>
-                <span style={{color:G,fontSize:12,fontWeight:800}}>👁 {fmtViews(item.views)}</span>
-                {item.createdAt && <span style={{color:"#75c5ff",fontSize:12,fontWeight:800}}>{timeAgo(item.createdAt)}</span>}
-              </div>
-              <GoldBtn onClick={()=>{if(item.id&&!item.id.startsWith("u"))incrementViews("updates",item.id);setArt(item);}} style={{fontSize:13,padding:"9px 16px"}}>📖 Soma Zaidi →</GoldBtn>
-            </div>
-          </TiltCard>
+          <ArticleCard key={item.id} item={item} onRead={setArt} collection="updates"/>
         ))}
       </div>
     </div>
 
-    <div style={{marginTop:64,display:"flex",gap:12,flexWrap:"wrap"}}>
-      <a href="mailto:swahilitecheliteacademy@gmail.com" style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 15px",borderRadius:11,border:"1px solid rgba(245,166,35,.2)",background:"rgba(245,166,35,.07)",color:G,fontSize:13,fontWeight:700,textDecoration:"none"}}>✉️ swahilitecheliteacademy@gmail.com</a>
-      <a href="https://wa.me/8619715852043" target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 15px",borderRadius:11,border:"1px solid rgba(37,211,102,.2)",background:"rgba(37,211,102,.07)",color:"#25d366",fontSize:13,fontWeight:700,textDecoration:"none"}}>💬 WhatsApp STEA</a>
+    <div style={{marginTop:80}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:24,gap:16,flexWrap:"wrap"}}>
+        <SHead title="Premium" hi="Courses" copy="Jifunze stadi za kisasa kuanzia mwanzo hadi ubingwa."/>
+        <button onClick={()=>goPage("courses")} style={{border:"none",background:"transparent",color:G,fontWeight:800,fontSize:14,cursor:"pointer",padding:"10px 0"}}>View All Courses →</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:24}}>
+        {featuredCourses.map(c => <CourseCard key={c.id} item={c} goPage={goPage}/>)}
+      </div>
+    </div>
+
+    <div style={{marginTop:80,display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
+      <a href="mailto:swahilitecheliteacademy@gmail.com" style={{display:"inline-flex",alignItems:"center",gap:7,padding:"10px 20px",borderRadius:14,border:"1px solid rgba(245,166,35,.2)",background:"rgba(245,166,35,.07)",color:G,fontSize:14,fontWeight:700,textDecoration:"none"}}>✉️ Email Us</a>
+      <a href="https://wa.me/255768260933" target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:7,padding:"10px 20px",borderRadius:14,border:"1px solid rgba(37,211,102,.2)",background:"rgba(37,211,102,.07)",color:"#25d366",fontSize:14,fontWeight:700,textDecoration:"none"}}>💬 WhatsApp Support</a>
     </div>
   </W></section>);
 }
@@ -1117,6 +2149,7 @@ function HomePage({goPage}){
 
 export default function App(){
   const[page,setPage]=useState("home");
+  const[transitioning,setTransitioning]=useState(false);
   const[loaded,setLoaded]=useState(false);
   const[user,setUser]=useState(null);
   const[authOpen,setAuthOpen]=useState(false);
@@ -1127,7 +2160,6 @@ export default function App(){
   const[searchQ,setSearchQ]=useState("");
   const[scrollPct,setScrollPct]=useState(0);
   const[showTop,setShowTop]=useState(false);
-  const[newsEmail,setNewsEmail]=useState("");
 
   useEffect(()=>{
     initFirebase();
@@ -1168,7 +2200,21 @@ export default function App(){
     console.log("Current User State:", user);
   }, [user]);
 
-  const goPage=(p)=>{setPage(p);window.scrollTo(0,0);setMobileOpen(false);};
+  const [selectedCourse, setSelectedCourse] = useState(null);
+
+  const goPage=(p, data=null)=>{
+    if(p===page && !data) return;
+    setTransitioning(true);
+    setTimeout(()=>{
+      if (p === "course-detail" && data) {
+        setSelectedCourse(data);
+      }
+      setPage(p);
+      window.scrollTo(0,0);
+      setMobileOpen(false);
+      setTimeout(()=>setTransitioning(false), 600);
+    }, 500);
+  };
   const handleLogout=async()=>{
     try {
       await signOut(getFirebaseAuth());
@@ -1185,11 +2231,17 @@ export default function App(){
     home: <HomePage goPage={goPage}/>,
     tips: <TipsPage/>,
     habari: <UpdatesPage/>,
+    prompts: <PromptLabPage/>,
     deals: <DealsPage/>,
-    courses: <CoursesPage/>,
+    courses: <CoursesPage goPage={goPage}/>,
+    "course-detail": <CourseDetailPage course={selectedCourse} goPage={goPage}/>,
     duka: <DukaPage/>,
     websites: <WebsitesPage/>,
-    lab: <PromptLabPage/>,
+    about: <AboutPage/>,
+    contact: <ContactPage/>,
+    faq: <FAQPage/>,
+    privacy: <PrivacyPage/>,
+    terms: <TermsPage/>,
   };
 
   return (
@@ -1204,6 +2256,56 @@ export default function App(){
           <style>{`@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Instrument+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes blink{50%{opacity:0}}@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}@keyframes logoPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,.45)}50%{box-shadow:0 0 0 18px rgba(245,166,35,0)}}@keyframes loadBar{0%{width:0%}60%{width:65%}100%{width:100%}}@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:rgba(245,166,35,.28);border-radius:3px}input::placeholder{color:rgba(255,255,255,.28)}a{text-decoration:none;color:inherit}nav::-webkit-scrollbar{display:none}@media(max-width:900px){#desktopNav{display:none!important}}@media(min-width:901px){#hamburger{display:none!important}}`}</style>
 
           <LoadingScreen done={loaded}/>
+          
+          <AnimatePresence>
+            {transitioning && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  zIndex: 1000,
+                  background: "rgba(5, 6, 10, 0.4)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
+                  transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                  style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 24,
+                    background: `linear-gradient(135deg, ${G}, ${G2})`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: `0 0 40px ${G}44`,
+                    marginBottom: 24
+                  }}
+                >
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+                </motion.div>
+                <div style={{ width: 140, height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 99, overflow: "hidden" }}>
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: "100%" }}
+                    transition={{ duration: 0.5 }}
+                    style={{ height: "100%", background: G }}
+                  />
+                </div>
+                <div style={{ marginTop: 12, fontSize: 10, fontWeight: 900, color: G, textTransform: "uppercase", letterSpacing: 2, textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>STEA Loading...</div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div style={{position:"fixed",left:0,top:0,height:3,width:`${scrollPct}%`,zIndex:400,background:`linear-gradient(90deg,${G},${G2})`,boxShadow:`0 0 12px rgba(245,166,35,.6)`,transition:"width .1s",pointerEvents:"none"}}/>
 
           {/* Ticker */}
@@ -1262,35 +2364,55 @@ export default function App(){
           <main>{PAGES[page]||PAGES.home}</main>
 
           {/* Newsletter */}
-          <div style={{maxWidth:1180,margin:"0 auto",padding:"0 14px 44px"}}>
-            <div style={{padding:28,borderRadius:22,border:"1px solid rgba(255,255,255,.1)",background:"linear-gradient(180deg,#151823,#10131c)"}}>
-              <h3 style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:26,margin:"0 0 8px"}}>Jiunge na Newsletter ya STEA</h3>
-              <p style={{color:"rgba(255,255,255,.55)",margin:"0 0 16px",fontSize:15}}>Pata tech tips, deals na updates kila wiki bila malipo.</p>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                <input value={newsEmail} onChange={e=>setNewsEmail(e.target.value)} type="email" placeholder="Email yako" style={{flex:1,minWidth:200,height:48,borderRadius:13,border:"1px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.05)",color:"#fff",padding:"0 14px",outline:"none",fontFamily:"inherit",fontSize:14}}/>
-                <GoldBtn onClick={()=>{if(!newsEmail.includes("@")){alert("Weka email sahihi kwanza");return;}alert("✅ Asante! Umejiunga na STEA Newsletter.");setNewsEmail("");}}>Subscribe</GoldBtn>
-              </div>
-            </div>
-          </div>
+          {page === "home" && <NewsletterForm/>}
 
-          <footer style={{padding:"20px 14px 64px",textAlign:"center",color:"rgba(255,255,255,.38)",fontSize:14,borderTop:"1px solid rgba(255,255,255,.06)"}}>
-            <div style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:18,color:"rgba(255,255,255,.65)",fontWeight:800,marginBottom:8}}>SwahiliTech Elite Academy — <span style={{color:G}}>STEA</span></div>
-            <div style={{marginBottom:10}}>Teknolojia kwa Kiswahili 🇹🇿 · © 2026 STEA</div>
-            <div style={{display:"flex",gap:18,justifyContent:"center",flexWrap:"wrap"}}>
-              <a href="mailto:swahilitecheliteacademy@gmail.com" style={{color:G,fontWeight:700}}>✉️ swahilitecheliteacademy@gmail.com</a>
-              <a href="https://wa.me/8619715852043" target="_blank" rel="noreferrer" style={{color:"#25d366",fontWeight:700}}>💬 WhatsApp STEA</a>
-            </div>
+          {/* Footer */}
+          <footer style={{background:"#05060a",borderTop:"1px solid rgba(255,255,255,.06)",padding:"80px 0 40px",marginTop:100}}>
+            <W>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:60,marginBottom:60}}>
+                <div style={{gridColumn:"span 2"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
+                    <div style={{width:48,height:48,borderRadius:16,display:"grid",placeItems:"center",background:`linear-gradient(135deg,${G},${G2})`,color:"#111"}}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></div>
+                    <strong style={{fontSize:24,letterSpacing:"-.04em",fontWeight:800}}>STEA</strong>
+                  </div>
+                  <p style={{color:"rgba(255,255,255,.5)",lineHeight:1.8,maxWidth:380,marginBottom:32}}>SwahiliTech Elite Academy (STEA) ni jukwaa namba moja la teknolojia kwa Kiswahili nchini Tanzania. Tunaleta elimu, habari na ofa bora za tech kiganjani mwako.</p>
+                  <div style={{display:"flex",gap:16,marginBottom:32}}>
+                    {["facebook","instagram","twitter","youtube"].map(s=>(<a key={s} href="#" style={{width:40,height:40,borderRadius:12,border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.04)",display:"grid",placeItems:"center",color:"rgba(255,255,255,.6)",fontSize:18}}>{s[0].toUpperCase()}</a>))}
+                  </div>
+                </div>
+                <div>
+                  <h4 style={{fontSize:16,fontWeight:800,marginBottom:24,color:"#fff"}}>Quick Links</h4>
+                  <div style={{display:"grid",gap:12}}>
+                    {NAV.map(n=>(<button key={n.id} onClick={()=>goPage(n.id)} style={{border:"none",background:"transparent",color:"rgba(255,255,255,.5)",fontSize:14,textAlign:"left",cursor:"pointer",padding:0}} onMouseEnter={e=>e.currentTarget.style.color=G} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,.5)"}>{n.label}</button>))}
+                  </div>
+                </div>
+                <div>
+                  <h4 style={{fontSize:16,fontWeight:800,marginBottom:24,color:"#fff"}}>Trust & Legal</h4>
+                  <div style={{display:"grid",gap:12}}>
+                    {[{id:"about",l:"About Us"},{id:"contact",l:"Contact Us"},{id:"faq",l:"FAQ"},{id:"privacy",l:"Privacy Policy"},{id:"terms",l:"Terms of Use"}].map(l=>(<button key={l.id} onClick={()=>goPage(l.id)} style={{border:"none",background:"transparent",color:"rgba(255,255,255,.5)",fontSize:14,textAlign:"left",cursor:"pointer",padding:0}} onMouseEnter={e=>e.currentTarget.style.color=G} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,.5)"}>{l.l}</button>))}
+                  </div>
+                </div>
+              </div>
+              
+              <div style={{borderTop:"1px solid rgba(255,255,255,.06)",paddingTop:40,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:20}}>
+                <div style={{color:"rgba(255,255,255,.3)",fontSize:13}}>© 2026 SwahiliTech Elite Academy. All rights reserved.</div>
+                <div style={{display:"flex",gap:24,color:"rgba(255,255,255,.3)",fontSize:13}}>
+                  <span>Made with ❤️ in Tanzania</span>
+                  <span>v2.5.0 Premium</span>
+                </div>
+              </div>
+            </W>
           </footer>
 
-          {showTop&&<button onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{position:"fixed",right:18,bottom:82,zIndex:200,width:46,height:46,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",border:"1px solid rgba(245,166,35,.3)",background:"rgba(12,14,24,.92)",color:G,cursor:"pointer",fontSize:20,boxShadow:"0 8px 24px rgba(0,0,0,.35)"}}>↑</button>}
-          
-          {/* Floating WhatsApp Button */}
-          <a href="https://wa.me/8619715852043?text=Habari+STEA,+nina+swali..." target="_blank" rel="noreferrer" 
-            style={{position:"fixed",right:18,bottom:18,zIndex:200,width:54,height:54,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"#25D366",color:"#fff",fontSize:28,boxShadow:"0 12px 32px rgba(37,211,102,.4)",transition:"transform .3s"}}
-            onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1) rotate(8deg)"}
-            onMouseLeave={e=>e.currentTarget.style.transform="scale(1) rotate(0deg)"}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.886 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
-          </a>
+          <SupportLauncher/>
+          {showTop && (
+            <button 
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} 
+              style={{ position: "fixed", right: 34, bottom: 120, zIndex: 200, width: 50, height: 50, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(245,166,35,.3)", background: "rgba(12,14,24,.92)", color: G, cursor: "pointer", fontSize: 20, boxShadow: "0 8px 24px rgba(0,0,0,.35)" }}
+            >
+              ↑
+            </button>
+          )}
         </div>
       )}
     </ErrorBoundary>
