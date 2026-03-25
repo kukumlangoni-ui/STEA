@@ -164,6 +164,104 @@ const G = "#F5A623",
   G2 = "#FFD17C",
   CB = "#141823";
 
+const WA_CHANNEL_DEFAULT = "https://whatsapp.com/channel/0029VbBdGVnD8SDzNFPb1f1q";
+
+// ── Share Button ──────────────────────────────────────
+function ShareButton({ title, style = {} }) {
+  const [showMenu, setShowMenu] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const url = window.location.href;
+
+  const doShare = async (e) => {
+    e.stopPropagation();
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+        return;
+      } catch {}
+    }
+    setShowMenu(v => !v);
+  };
+
+  const copyLink = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => { setCopied(false); setShowMenu(false); }, 2000);
+    });
+  };
+
+  const shareWA = (e) => {
+    e.stopPropagation();
+    window.open(`https://wa.me/?text=${encodeURIComponent(title + " " + url)}`, "_blank");
+    setShowMenu(false);
+  };
+
+  const shareFB = (e) => {
+    e.stopPropagation();
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, "_blank");
+    setShowMenu(false);
+  };
+
+  const shareX = (e) => {
+    e.stopPropagation();
+    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`, "_blank");
+    setShowMenu(false);
+  };
+
+  return (
+    <div style={{ position: "relative", ...style }} onClick={e => e.stopPropagation()}>
+      <button
+        onClick={doShare}
+        title="Shiriki"
+        style={{
+          width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+          border: "1px solid rgba(255,255,255,.12)",
+          background: "rgba(255,255,255,.06)",
+          color: "rgba(255,255,255,.7)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          cursor: "pointer", transition: "all .2s",
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = "rgba(245,166,35,.15)"; e.currentTarget.style.borderColor = "rgba(245,166,35,.3)"; e.currentTarget.style.color = G; }}
+        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.06)"; e.currentTarget.style.borderColor = "rgba(255,255,255,.12)"; e.currentTarget.style.color = "rgba(255,255,255,.7)"; }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+      </button>
+
+      {showMenu && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 8px)", right: 0, zIndex: 999,
+          background: "rgba(14,16,26,.98)", border: "1px solid rgba(255,255,255,.12)",
+          borderRadius: 14, padding: 8, minWidth: 170,
+          boxShadow: "0 12px 40px rgba(0,0,0,.5)",
+          backdropFilter: "blur(20px)",
+        }}>
+          {[
+            { label: copied ? "✅ Link Imenakiliwa!" : "🔗 Nakili Link", fn: copyLink },
+            { label: "💬 WhatsApp", fn: shareWA },
+            { label: "📘 Facebook", fn: shareFB },
+            { label: "🐦 Twitter / X", fn: shareX },
+          ].map(({ label, fn }) => (
+            <button key={label} onClick={fn} style={{
+              display: "block", width: "100%", textAlign: "left",
+              padding: "9px 14px", borderRadius: 9, border: "none",
+              background: "transparent", color: "rgba(255,255,255,.8)",
+              fontSize: 13, fontWeight: 600, cursor: "pointer",
+              transition: "background .15s",
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = "rgba(245,166,35,.1)"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >{label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Earth Hero Component ──────────────────────────────
 function EarthHero() {
   return (
@@ -919,7 +1017,8 @@ function Skeleton({ type = "card" }) {
 }
 
 // ── Article modal ─────────────────────────────────────
-function ArticleModal({ article, onClose, collection: col }) {
+function ArticleModal({ article, onClose, collection: col, waChannel }) {
+  const waLink = waChannel || WA_CHANNEL_DEFAULT;
   const [imgError, setImgError] = useState(false);
   const hasImage = article.imageUrl && !imgError;
   const isTips = col === "tips";
@@ -1124,67 +1223,41 @@ function ArticleModal({ article, onClose, collection: col }) {
                   🎓 Jiunge na Kozi
                 </GoldBtn>
                 <button
-                  onClick={() =>
-                    window.open(
-                      `https://wa.me/8619715852043?text=Habari%20STEA,%20nahitaji%20msaada%20kuhusu%20maujanja:%20${encodeURIComponent(article.title)}`,
-                      "_blank",
-                    )
-                  }
+                  onClick={() => window.open(waLink, "_blank")}
                   style={{
-                    padding: "12px 20px",
-                    borderRadius: 16,
+                    padding: "12px 20px", borderRadius: 16,
                     border: "1px solid rgba(37,211,102,.3)",
-                    background: "rgba(37,211,102,.1)",
-                    color: "#25d366",
-                    fontWeight: 800,
-                    fontSize: 14,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
+                    background: "rgba(37,211,102,.08)",
+                    color: "#25d366", fontWeight: 800, fontSize: 14,
+                    cursor: "pointer", display: "flex",
+                    alignItems: "center", justifyContent: "center", gap: 8,
+                    transition: "all .2s",
                   }}
+                  onMouseEnter={e => e.currentTarget.style.background = "rgba(37,211,102,.16)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "rgba(37,211,102,.08)"}
                 >
-                  💬 WhatsApp Msaada
+                  📢 Jiunge na WhatsApp Channel
                 </button>
               </>
             ) : (
               <>
-                <GoldBtn
-                  onClick={() =>
-                    window.open(
-                      "https://8a2374dd.sibforms.com/serve/MUIFAGZR8_KuVimiiaB4VRbn_jum3slVhVnj0whoh9aEwMBVNYx41VMz5boVmclj3oBfyTIx0eWvOtqoxrzUwuMs_WhmpapKONkACfI3eivQYqjywjxuCK-svny75AYLg3jmz8HZimADld83jxEQBzcucbx3sCeoVdk7yK-2hrL4nS7pbD-N8X7Rv03HiVnFeGUUQUCKIh5RNzbmtg==",
-                      "_blank",
-                    )
-                  }
-                  style={{ justifyContent: "center" }}
-                >
-                  📩 Newsletter
-                </GoldBtn>
                 <button
-                  onClick={() =>
-                    window.open(
-                      `https://wa.me/8619715852043?text=Habari%20STEA,%20nimeona%20habari%20hii:%20${encodeURIComponent(article.title)}`,
-                      "_blank",
-                    )
-                  }
+                  onClick={() => window.open(waLink, "_blank")}
                   style={{
-                    padding: "12px 20px",
-                    borderRadius: 16,
+                    padding: "12px 20px", borderRadius: 16,
                     border: "1px solid rgba(37,211,102,.3)",
-                    background: "rgba(37,211,102,.1)",
-                    color: "#25d366",
-                    fontWeight: 800,
-                    fontSize: 14,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
+                    background: "rgba(37,211,102,.08)",
+                    color: "#25d366", fontWeight: 800, fontSize: 14,
+                    cursor: "pointer", display: "flex",
+                    alignItems: "center", justifyContent: "center", gap: 8,
+                    transition: "all .2s",
                   }}
+                  onMouseEnter={e => e.currentTarget.style.background = "rgba(37,211,102,.16)"}
+                  onMouseLeave={e => e.currentTarget.style.background = "rgba(37,211,102,.08)"}
                 >
-                  💬 WhatsApp Discussion
+                  📢 Jiunge na WhatsApp Channel
                 </button>
+                <ShareButton title={article.title} style={{ alignSelf: "center" }} />
               </>
             )}
           </div>
@@ -1195,7 +1268,8 @@ function ArticleModal({ article, onClose, collection: col }) {
 }
 
 // ── Video modal ───────────────────────────────────────
-function VideoModal({ video, onClose, collection: col }) {
+function VideoModal({ video, onClose, collection: col, waChannel }) {
+  const waLink = waChannel || WA_CHANNEL_DEFAULT;
   const isTips = col === "tips";
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -1439,53 +1513,30 @@ function VideoModal({ video, onClose, collection: col }) {
           >
             {isTips ? (
               <GoldBtn
-                onClick={() => {
-                  onClose();
-                  window.location.hash = "#courses";
-                }}
+                onClick={() => { onClose(); window.location.hash = "#courses"; }}
                 style={{ padding: "12px 24px" }}
               >
                 🎓 Jiunge na Kozi
               </GoldBtn>
             ) : (
-              <GoldBtn
-                onClick={() =>
-                  window.open(
-                    "https://8a2374dd.sibforms.com/serve/MUIFAGZR8_KuVimiiaB4VRbn_jum3slVhVnj0whoh9aEwMBVNYx41VMz5boVmclj3oBfyTIx0eWvOtqoxrzUwuMs_WhmpapKONkACfI3eivQYqjywjxuCK-svny75AYLg3jmz8HZimADld83jxEQBzcucbx3sCeoVdk7yK-2hrL4nS7pbD-N8X7Rv03HiVnFeGUUQUCKIh5RNzbmtg==",
-                    "_blank",
-                  )
-                }
-                style={{ padding: "12px 24px" }}
+              <button
+                onClick={() => window.open(waLink, "_blank")}
+                style={{
+                  padding: "12px 24px", borderRadius: 16,
+                  border: "1px solid rgba(37,211,102,.3)",
+                  background: "rgba(37,211,102,.08)",
+                  color: "#25d366", fontWeight: 800, fontSize: 14,
+                  cursor: "pointer", display: "flex",
+                  alignItems: "center", justifyContent: "center", gap: 8,
+                  transition: "all .2s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(37,211,102,.16)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(37,211,102,.08)"}
               >
-                📩 Newsletter
-              </GoldBtn>
+                📢 Jiunge na WhatsApp Channel
+              </button>
             )}
-            <button
-              onClick={() =>
-                window.open(
-                  `https://wa.me/8619715852043?text=Habari%20STEA,%20nimeona%20video%20hii:%20${encodeURIComponent(video.title)}`,
-                  "_blank",
-                )
-              }
-              style={{
-                padding: "12px 24px",
-                borderRadius: 16,
-                border: "1px solid rgba(37,211,102,.3)",
-                background: "rgba(37,211,102,.1)",
-                color: "#25d366",
-                fontWeight: 800,
-                fontSize: 14,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                transition: "all 0.2s",
-              }}
-            >
-              <MessageCircle size={18} />
-              WhatsApp Discussion
-            </button>
+            <ShareButton title={video.title} />
           </div>
         </div>
       </motion.div>
@@ -1648,28 +1699,7 @@ function ArticleCard({ item, onRead, collection: col }) {
           >
             📖 Soma Zaidi
           </GoldBtn>
-          <button
-            onClick={() =>
-              window.open(
-                `https://wa.me/8619715852043?text=Habari%20STEA,%20nahitaji%20msaada%20kuhusu%20maujanja:%20${encodeURIComponent(item.title)}`,
-                "_blank",
-              )
-            }
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 12,
-              border: "1px solid rgba(37,211,102,.3)",
-              background: "rgba(37,211,102,.1)",
-              color: "#25d366",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-            }}
-          >
-            <MessageCircle size={18} />
-          </button>
+          <ShareButton title={item.title} />
         </div>
       </div>
     </TiltCard>
@@ -1854,28 +1884,7 @@ function VideoCard({ item, onPlay, collection: col }) {
           >
             ▶ Tazama Sasa
           </GoldBtn>
-          <button
-            onClick={() =>
-              window.open(
-                `https://wa.me/8619715852043?text=Habari%20STEA,%20nimeona%20video%20hii:%20${encodeURIComponent(item.title)}`,
-                "_blank",
-              )
-            }
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 12,
-              border: "1px solid rgba(37,211,102,.3)",
-              background: "rgba(37,211,102,.1)",
-              color: "#25d366",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-            }}
-          >
-            <MessageCircle size={16} />
-          </button>
+          <ShareButton title={item.title} />
         </div>
       </div>
     </TiltCard>
@@ -2539,7 +2548,7 @@ function UserChip({ user, onLogout, onAdmin }) {
 // ════════════════════════════════════════════════════
 // LIVE DATA PAGES
 // ════════════════════════════════════════════════════
-function TechContentPage({ defaultTab = "tips" }) {
+function TechContentPage({ defaultTab = "tips", waChannel }) {
   const activeTab = defaultTab;
   const [filter, setFilter] = useState("all");
 
@@ -2600,6 +2609,7 @@ function TechContentPage({ defaultTab = "tips" }) {
                 ? "tips"
                 : "updates"
             }
+            waChannel={waChannel}
           />
         )}
         {vid && (
@@ -2611,6 +2621,7 @@ function TechContentPage({ defaultTab = "tips" }) {
                 ? "tips"
                 : "updates"
             }
+            waChannel={waChannel}
           />
         )}
 
@@ -6157,6 +6168,7 @@ function HomePage({ goPage, siteSettings }) {
                 ? "tips"
                 : "updates"
             }
+            waChannel={siteSettings?.whatsapp_channel?.link}
           />
         )}
         {vid && (
@@ -6168,6 +6180,7 @@ function HomePage({ goPage, siteSettings }) {
                 ? "tips"
                 : "updates"
             }
+            waChannel={siteSettings?.whatsapp_channel?.link}
           />
         )}
 
@@ -6903,7 +6916,7 @@ export default function App() {
     const t = setTimeout(() => setLoaded(true), 2200);
     const db = getFirebaseDb();
     if (!db) return;
-    const unsubs = ["about_us", "about_creator", "contact_info", "stats"].map(id => 
+    const unsubs = ["about_us", "about_creator", "contact_info", "stats", "whatsapp_channel"].map(id => 
       onSnapshot(doc(db, "site_settings", id), (snap) => {
         if (snap.exists()) {
           setSiteSettings(prev => ({ ...prev, [id]: snap.data().data }));
@@ -6984,8 +6997,8 @@ export default function App() {
 
   const PAGES = {
     home: <HomePage goPage={goPage} siteSettings={siteSettings} />,
-    tips: <TechContentPage key="tips" defaultTab="tips" />,
-    habari: <TechContentPage key="updates" defaultTab="updates" />,
+    tips: <TechContentPage key="tips" defaultTab="tips" waChannel={siteSettings?.whatsapp_channel?.link} />,
+    habari: <TechContentPage key="updates" defaultTab="updates" waChannel={siteSettings?.whatsapp_channel?.link} />,
     prompts: <PromptLabPage />,
     deals: <DealsPage />,
     courses: <CoursesPage goPage={goPage} />,
