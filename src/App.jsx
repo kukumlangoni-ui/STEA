@@ -7030,7 +7030,7 @@ export default function App() {
               "radial-gradient(circle at 14% 12%,rgba(245,166,35,.12),transparent 18%),radial-gradient(circle at 84% 22%,rgba(86,183,255,.12),transparent 20%),linear-gradient(180deg,#05060a,#080a11)",
           }}
         >
-          <style>{`@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Instrument+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes blink{50%{opacity:0}}@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}@keyframes logoPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,.45)}50%{box-shadow:0 0 0 18px rgba(245,166,35,0)}}@keyframes steaGlow{0%,100%{opacity:0.6;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}@keyframes steaEntrance{from{opacity:0;transform:scale(0.75)}to{opacity:1;transform:scale(1)}}@keyframes steaPulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 0px rgba(245,166,35,0))}50%{transform:scale(1.04);filter:drop-shadow(0 0 18px rgba(245,166,35,0.35))}}@keyframes loadBar{0%{width:0%}60%{width:65%}100%{width:100%}}@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:rgba(245,166,35,.28);border-radius:3px}input::placeholder{color:rgba(255,255,255,.28)}a{text-decoration:none;color:inherit}nav::-webkit-scrollbar{display:none}@media(max-width:900px){#desktopNav{display:none!important}}@media(min-width:901px){#hamburger{display:none!important}}.course-list-item{display:flex;flex-direction:column;height:100%}.course-img-container{aspect-ratio:16/9;width:100%;border-bottom:1px solid rgba(255,255,255,.05)}.course-hero{display:grid;grid-template-columns:1fr;gap:30px}.course-hero-img{aspect-ratio:16/9;width:100%}@media(min-width:900px){.course-hero{grid-template-columns:1.2fr 1fr;gap:60px;align-items:center}.course-hero-img{aspect-ratio:16/9}}`}</style>
+          <style>{`@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Instrument+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes blink{50%{opacity:0}}@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}@keyframes logoPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,.45)}50%{box-shadow:0 0 0 18px rgba(245,166,35,0)}}@keyframes loadBar{0%{width:0%}60%{width:65%}100%{width:100%}}@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}input::placeholder{color:rgba(255,255,255,.28)}a{text-decoration:none;color:inherit}nav::-webkit-scrollbar{display:none}.stea-navbar-logo{width:38px!important;height:38px!important;min-width:38px!important;max-width:38px!important;max-height:38px!important;object-fit:contain!important;flex-shrink:0!important;border-radius:10px}.stea-footer-logo{height:52px!important;max-height:52px!important;width:auto!important;max-width:200px!important;object-fit:contain!important}img{max-width:100%}.course-list-item{display:flex;flex-direction:column;height:100%}.course-img-container{aspect-ratio:16/9;width:100%;border-bottom:1px solid rgba(255,255,255,.05)}.course-hero{display:grid;grid-template-columns:1fr;gap:30px}.course-hero-img{aspect-ratio:16/9;width:100%}@media(max-width:900px){#desktopNav{display:none!important}.stea-navbar-logo{width:32px!important;height:32px!important;min-width:32px!important;max-width:32px!important}}@media(min-width:901px){#hamburger{display:none!important}}@media(min-width:900px){.course-hero{grid-template-columns:1.2fr 1fr;gap:60px;align-items:center}.course-hero-img{aspect-ratio:16/9}}`}</style>
 
           <LoadingScreen done={loaded} />
 
@@ -7207,7 +7207,16 @@ export default function App() {
                   userSelect: "none",
                 }}
               >
-                <img src="/stea-icon.png" alt="STEA Logo" className="stea-navbar-logo" />
+                <img
+                  src="/stea-icon.png"
+                  alt="STEA Logo"
+                  className="stea-navbar-logo"
+                  style={{
+                    width: 38, height: 38, minWidth: 38, maxWidth: 38, maxHeight: 38,
+                    objectFit: "contain", display: "block", flexShrink: 0,
+                    background: "transparent", borderRadius: 10,
+                  }}
+                />
                 <div>
                   <strong
                     style={{
@@ -7628,7 +7637,15 @@ export default function App() {
                       marginBottom: 24,
                     }}
                   >
-                    <img src="/stea-main.png" alt="STEA" className="stea-footer-logo" />
+                    <img
+                      src="/stea-main.png"
+                      alt="STEA"
+                      className="stea-footer-logo"
+                      style={{
+                        height: 52, maxHeight: 52, width: "auto", maxWidth: 200,
+                        objectFit: "contain", display: "block", background: "transparent",
+                      }}
+                    />
                   </div>
                   <p
                     style={{
