@@ -307,24 +307,34 @@ const BS = {
 // ════════════════════════════════════════════════════
 function LoadingScreen({ done }) {
   const [hide, setHide] = useState(false);
-  useEffect(() => {
-    if (done) setTimeout(() => setHide(true), 700);
-  }, [done]);
+  useEffect(() => { if (done) setTimeout(() => setHide(true), 700); }, [done]);
   if (hide) return null;
   return (
-    <div
-      className="stea-loader-wrapper"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        transition: "opacity .7s",
-        opacity: done ? 0 : 1,
-      }}
-    >
-      <img src="/stea-loader.png" alt="Loading STEA" className="stea-loader-logo" />
-      <p className="stea-loader-text">STEA AFRICA</p>
-      <div className="stea-loader-line"></div>
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999, background: "#05060a",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      transition: "opacity .7s", opacity: done ? 0 : 1,
+    }}>
+      <div style={{
+        width: 72, height: 72, borderRadius: 20, marginBottom: 24,
+        background: "linear-gradient(135deg,#F5A623,#FFD17C)",
+        display: "grid", placeItems: "center",
+        animation: "logoPulse 1.5s ease-in-out infinite",
+        boxShadow: "0 0 40px rgba(245,166,35,0.3)",
+      }}>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>
+        </svg>
+      </div>
+      <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 22, fontWeight: 800, letterSpacing: "-.04em", color: "#fff", marginBottom: 4 }}>
+        STEA
+      </div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,.35)", fontWeight: 700, letterSpacing: ".16em", textTransform: "uppercase", marginBottom: 32 }}>
+        Teknolojia kwa Kiswahili 🇹🇿
+      </div>
+      <div style={{ width: 160, height: 3, borderRadius: 99, background: "rgba(255,255,255,.07)", overflow: "hidden" }}>
+        <div style={{ height: "100%", borderRadius: 99, background: "linear-gradient(90deg,#F5A623,#FFD17C)", animation: "loadBar 2s ease-in-out forwards" }}/>
+      </div>
     </div>
   );
 }
