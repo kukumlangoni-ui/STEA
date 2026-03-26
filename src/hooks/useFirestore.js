@@ -24,12 +24,13 @@ export function useCollection(colName, orderField = "createdAt", limitCount = 50
       
       // Sort in memory by orderField desc
       fetchedDocs.sort((a, b) => {
-        const valA = a[orderField]?.toDate ? a[orderField].toDate() : (a[orderField] || 0);
-        const valB = b[orderField]?.toDate ? b[orderField].toDate() : (b[orderField] || 0);
+        const valA = a[orderField]?.toDate ? a[orderField].toDate() : a[orderField];
+        const valB = b[orderField]?.toDate ? b[orderField].toDate() : b[orderField];
         
-        // Handle cases where values might be strings or missing
-        const timeA = typeof valA === 'number' ? valA : new Date(valA).getTime() || 0;
-        const timeB = typeof valB === 'number' ? valB : new Date(valB).getTime() || 0;
+        // Handle cases where values might be null (pending serverTimestamp), strings or missing
+        // If null, treat as now (very large number) to keep at top
+        const timeA = valA === null || valA === undefined ? Date.now() + 10000 : (typeof valA === 'number' ? valA : new Date(valA).getTime() || 0);
+        const timeB = valB === null || valB === undefined ? Date.now() + 10000 : (typeof valB === 'number' ? valB : new Date(valB).getTime() || 0);
         
         return timeB - timeA;
       });
