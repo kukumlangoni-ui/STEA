@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   getFirebaseDb, collection, addDoc, updateDoc, deleteDoc, setDoc,
   doc, serverTimestamp, query, limit, onSnapshot, orderBy,
-  sendPushNotification,
+  sendPushNotification, handleFirestoreError, OperationType,
 } from "../firebase.js";
 import { timeAgo } from "../hooks/useFirestore.js";
 
@@ -73,6 +73,16 @@ function StatCard({ icon, label, value, color = G }) {
     </div>
   );
 }
+
+const Skeleton = () => (
+  <div style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.05)", background: "rgba(255,255,255,.02)", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center", height: 76 }}>
+    <div style={{ width: 48, height: 48, borderRadius: 10, background: "rgba(255,255,255,.05)", animation: "pulse 1.5s infinite" }}></div>
+    <div style={{ flex: 1, display: "grid", gap: 8 }}>
+      <div style={{ height: 16, width: "60%", borderRadius: 4, background: "rgba(255,255,255,.05)", animation: "pulse 1.5s infinite" }}></div>
+      <div style={{ height: 12, width: "40%", borderRadius: 4, background: "rgba(255,255,255,.05)", animation: "pulse 1.5s infinite" }}></div>
+    </div>
+  </div>
+);
 
 // ── Confirm Delete Dialog ─────────────────────────────
 function ConfirmDialog({ msg, onConfirm, onCancel }) {
@@ -175,7 +185,13 @@ function TechContentManager({ collectionName }) {
     imageUrl: "", carouselImages: [], ctaText: "", ctaUrl: "", source: "",
     platform: "youtube", embedUrl: "", channel: "", channelImg: "🎙️", duration: "",
     category: collectionName === "tips" ? "tech-tips" : "tech-updates",
-    sectionType: collectionName === "tips" ? "techTips" : "techUpdates"
+    sectionType: collectionName === "tips" ? "techTips" : "techUpdates",
+    // New CTA fields
+    primaryActionText: "", primaryActionLink: "", primaryActionType: "button",
+    enableShare: true, useDefaultWhatsAppChannel: true,
+    // New Creator fields
+    creatorName: "", creatorLabel: "", creatorProfileLink: "", sourcePlatform: "",
+    showCreatorAttribution: false
   });
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -200,7 +216,11 @@ function TechContentManager({ collectionName }) {
       });
       setDocs(fetched);
     }, (err) => {
+      console.log("Error in onSnapshot:", collectionName, err);
       console.error(`Error loading ${collectionName}:`, err);
+      if (err.message.includes("insufficient permissions")) {
+        handleFirestoreError(err, OperationType.LIST, collectionName);
+      }
     });
     return () => unsub();
   }, [db, collectionName]);
@@ -253,18 +273,38 @@ function TechContentManager({ collectionName }) {
         imageUrl: "", carouselImages: [], ctaText: "", ctaUrl: "", source: "",
         platform: "youtube", embedUrl: "", channel: "", channelImg: "🎙️", duration: "",
         category: collectionName === "tips" ? "tech-tips" : "tech-updates",
-        sectionType: collectionName === "tips" ? "techTips" : "techUpdates"
+        sectionType: collectionName === "tips" ? "techTips" : "techUpdates",
+        primaryActionText: "", primaryActionLink: "", primaryActionType: "button",
+        enableShare: true, useDefaultWhatsAppChannel: true,
+        creatorName: "", creatorLabel: "", creatorProfileLink: "", sourcePlatform: "",
+        showCreatorAttribution: false
       });
       setEditing(null);
     } catch (e) {
+      console.log("Error in save:", e);
       console.error(e);
-      toast_("Kuna tatizo", "error");
+      handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, collectionName);
+      toast_(e.message || "Kuna tatizo", "error");
     }
     setLoading(false);
   };
 
   const del = async (id) => {
-    setConfirm({ msg:"Una uhakika unataka kufuta post hii? Haiwezi kurejeshwa.", onConfirm: async()=>{ await deleteDoc(doc(db,collectionName,id)); setConfirm(null); toast_("Imefutwa"); }, onCancel:()=>setConfirm(null) });
+    setConfirm({ 
+      msg:"Una uhakika unataka kufuta post hii? Haiwezi kurejeshwa.", 
+      onConfirm: async()=>{ 
+        try {
+          await deleteDoc(doc(db,collectionName,id)); 
+          setConfirm(null); 
+          toast_("Imefutwa"); 
+        } catch (err) {
+          console.log("Error in del:", err);
+          handleFirestoreError(err, OperationType.DELETE, collectionName);
+          toast_("Imeshindikana kufuta", "error");
+        }
+      }, 
+      onCancel:()=>setConfirm(null) 
+    });
   };
 
   const edit = (item) => { 
@@ -288,6 +328,12 @@ function TechContentManager({ collectionName }) {
 
   return (
     <div>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
       {toast   && <Toast msg={toast.msg} type={toast.type}/>}
       {confirm && <ConfirmDialog {...confirm}/>}
       
@@ -360,30 +406,77 @@ function TechContentManager({ collectionName }) {
             </>
           )}
 
+          {/* Advanced CTA & Attribution Controls */}
+          <div style={{ marginTop: 20, padding: 20, borderRadius: 16, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.05)" }}>
+            <h4 style={{ margin: "0 0 16px", fontSize: 14, color: G, textTransform: "uppercase", letterSpacing: 1 }}>🚀 Advanced CTA & Creator Attribution</h4>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <Field label="Custom CTA Text (Overwrites default)"><Input value={form.primaryActionText} onChange={e => setForm(f => ({ ...f, primaryActionText: e.target.value }))} placeholder="e.g. Jiunge na STEA" /></Field>
+              <Field label="Custom CTA Link (Overwrites default)"><Input value={form.primaryActionLink} onChange={e => setForm(f => ({ ...f, primaryActionLink: e.target.value }))} placeholder="https://..." /></Field>
+            </div>
+
+            <div style={{ display: "flex", gap: 20, marginBottom: 20, flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+                <input type="checkbox" checked={form.useDefaultWhatsAppChannel} onChange={e => setForm(f => ({ ...f, useDefaultWhatsAppChannel: e.target.checked }))} />
+                Use Default WA Channel if no link
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+                <input type="checkbox" checked={form.enableShare} onChange={e => setForm(f => ({ ...f, enableShare: e.target.checked }))} />
+                Enable Share Button
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+                <input type="checkbox" checked={form.showCreatorAttribution} onChange={e => setForm(f => ({ ...f, showCreatorAttribution: e.target.checked }))} />
+                Show Creator Attribution
+              </label>
+            </div>
+
+            {form.showCreatorAttribution && (
+              <div style={{ display: "grid", gap: 16, padding: 16, background: "rgba(255,255,255,.02)", borderRadius: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <Field label="Creator Name"><Input value={form.creatorName} onChange={e => setForm(f => ({ ...f, creatorName: e.target.value }))} placeholder="e.g. Isaya Hans" /></Field>
+                  <Field label="Creator Label"><Input value={form.creatorLabel} onChange={e => setForm(f => ({ ...f, creatorLabel: e.target.value }))} placeholder="e.g. Imeandaliwa na" /></Field>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <Field label="Creator Profile Link"><Input value={form.creatorProfileLink} onChange={e => setForm(f => ({ ...f, creatorProfileLink: e.target.value }))} placeholder="https://instagram.com/..." /></Field>
+                  <Field label="Source Platform"><Input value={form.sourcePlatform} onChange={e => setForm(f => ({ ...f, sourcePlatform: e.target.value }))} placeholder="e.g. YouTube, STEA" /></Field>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div style={{ display:"flex", gap:10 }}>
             <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
-            {editing && <Btn onClick={()=>{setEditing(null);setForm({type:"article",badge:"Tech",title:"",summary:"",content:"",imageUrl:"",carouselImages:[],ctaText:"",ctaUrl:"",source:"",platform:"youtube",embedUrl:"",channel:"",channelImg:"🎙️",duration:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
+            {editing && <Btn onClick={()=>{setEditing(null);setForm({type:"article",badge:"Tech",title:"",summary:"",content:"",imageUrl:"",carouselImages:[],ctaText:"",ctaUrl:"",source:"",platform:"youtube",embedUrl:"",channel:"",channelImg:"🎙️",duration:"", primaryActionText: "", primaryActionLink: "", primaryActionType: "button", enableShare: true, useDefaultWhatsAppChannel: true, creatorName: "", creatorLabel: "", creatorProfileLink: "", sourcePlatform: "", showCreatorAttribution: false});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
           </div>
         </div>
       </div>
 
       <div style={{ display: "grid", gap: 12 }}>
-        {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna content bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item => (
-          <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", display: "grid", placeItems: "center", background: "rgba(255,255,255,.05)", fontSize: 20 }}>
-              {item.type === "video" ? "▶️" : "📝"}
+        {dataLoading ? (
+          <>
+            <Skeleton />
+            <Skeleton />
+            <Skeleton />
+          </>
+        ) : docs.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna content bado. Ongeza ya kwanza! 👆</div>
+        ) : (
+          docs.map(item => (
+            <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", display: "grid", placeItems: "center", background: "rgba(255,255,255,.05)", fontSize: 20 }}>
+                {item.type === "video" ? "▶️" : "📝"}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>{item.title}</div>
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.type} • {item.summary?.substring(0, 40)}...</div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn onClick={() => edit(item)} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
+                <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{item.title}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.type} • {item.summary?.substring(0, 40)}...</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => edit(item)} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
-              <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -394,6 +487,7 @@ function TechContentManager({ collectionName }) {
 // ══════════════════════════════════════════════════════
 function DealsManager() {
   const [docs, setDocs] = useState([]);
+  const [dataLoading, setDataLoading] = useState(true);
   const [form, setForm] = useState({ 
     imageUrl: "", name: "", description: "", dealType: "direct_offer", directLink: "", affiliateLink: "", whatsappLink: "", promoCode: "", 
     oldPrice: "", newPrice: "", expiryDate: "", badge: "", featured: false
@@ -419,8 +513,13 @@ function DealsManager() {
         return timeB - timeA;
       });
       setDocs(fetched);
+      setDataLoading(false);
     }, (err) => {
+      setDataLoading(false);
       console.error("Error loading deals:", err);
+      if (err.message.includes("insufficient permissions")) {
+        handleFirestoreError(err, OperationType.LIST, "deals");
+      }
     });
     return () => unsub();
   }, [db]);
@@ -456,7 +555,11 @@ function DealsManager() {
       }
       setForm({ imageUrl: "", name: "", description: "", dealType: "direct_offer", directLink: "", affiliateLink: "", whatsappLink: "", promoCode: "", oldPrice: "", newPrice: "", expiryDate: "", badge: "", featured: false });
       setEditing(null);
-    } catch(e) { toast_(e.message,"error"); }
+    } catch(e) { 
+      console.log("Error in save deals:", e);
+      handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "deals");
+      toast_(e.message,"error"); 
+    }
     setLoading(false);
   };
 
@@ -469,6 +572,8 @@ function DealsManager() {
           setConfirm(null);
           toast_("Deal imefutwa");
         } catch (e) {
+          console.log("Error in del deals:", e);
+          handleFirestoreError(e, OperationType.DELETE, "deals");
           toast_(e.message, "error");
         }
       },
@@ -530,23 +635,32 @@ function DealsManager() {
       </div>
 
       <div style={{ display:"grid", gap:12 }}>
-        {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna deals bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item=>(
-          <div key={item.id} style={{ borderRadius:16, border:`1px solid ${item.active?"rgba(255,255,255,.07)":"rgba(239,68,68,.2)"}`, background:item.active?"#1a1d2e":"rgba(239,68,68,.05)", padding:"14px 18px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-            <AdminThumb url={item.imageUrl} fallback={item.type === "video" ? "🎬" : "📄"} />
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontWeight:800, fontSize:15 }}>{item.name}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.domain} · {item.code?"Code: "+item.code:"Referral"}</div>
+        {dataLoading ? (
+          <>
+            <Skeleton />
+            <Skeleton />
+            <Skeleton />
+          </>
+        ) : docs.length===0 ? (
+          <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna deals bado. Ongeza ya kwanza! 👆</div>
+        ) : (
+          docs.map(item=>(
+            <div key={item.id} style={{ borderRadius:16, border:`1px solid ${item.active?"rgba(255,255,255,.07)":"rgba(239,68,68,.2)"}`, background:item.active?"#1a1d2e":"rgba(239,68,68,.05)", padding:"14px 18px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+              <AdminThumb url={item.imageUrl} fallback={item.type === "video" ? "🎬" : "📄"} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:800, fontSize:15 }}>{item.name}</div>
+                <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.domain} · {item.code?"Code: "+item.code:"Referral"}</div>
+              </div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <button onClick={()=>toggle(item)} style={{ border:`1px solid ${item.active?"rgba(0,196,140,.3)":"rgba(239,68,68,.3)"}`, borderRadius:10, padding:"6px 12px", background:item.active?"rgba(0,196,140,.1)":"rgba(239,68,68,.1)", color:item.active?"#67f0c1":"#fca5a5", cursor:"pointer", fontWeight:700, fontSize:12 }}>
+                  {item.active?"✅ Live":"⏸ Paused"}
+                </button>
+                <Btn onClick={()=>{setEditing(item.id);setForm({...item});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
+                <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
+              </div>
             </div>
-            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={()=>toggle(item)} style={{ border:`1px solid ${item.active?"rgba(0,196,140,.3)":"rgba(239,68,68,.3)"}`, borderRadius:10, padding:"6px 12px", background:item.active?"rgba(0,196,140,.1)":"rgba(239,68,68,.1)", color:item.active?"#67f0c1":"#fca5a5", cursor:"pointer", fontWeight:700, fontSize:12 }}>
-                {item.active?"✅ Live":"⏸ Paused"}
-              </button>
-              <Btn onClick={()=>{setEditing(item.id);setForm({...item});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
-              <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -557,6 +671,7 @@ function DealsManager() {
 // ══════════════════════════════════════════════════════
 function CoursesManager() {
   const [docs, setDocs] = useState([]);
+  const [dataLoading, setDataLoading] = useState(true);
   const [form, setForm] = useState({ 
     imageUrl:"", carouselImages: [], title:"", desc:"", free:true, price:"Bure · Start now", cta:"Anza Sasa →", lessons:"", whatsapp:"https://wa.me/255768260933", accent:"",
     badge: "New", level: "Beginner", instructorName: "STEA Instructor", duration: "4 Weeks", totalLessons: "12", studentsCount: "0", rating: "5.0",
@@ -594,8 +709,13 @@ function CoursesManager() {
         return timeB - timeA;
       });
       setDocs(fetched);
+      setDataLoading(false);
     }, (err) => {
+      setDataLoading(false);
       console.error("Error loading courses:", err);
+      if (err.message.includes("insufficient permissions")) {
+        handleFirestoreError(err, OperationType.LIST, "courses");
+      }
     });
     return () => unsub();
   }, [db]);
@@ -674,7 +794,9 @@ function CoursesManager() {
       });
       setEditing(null);
     } catch(e) { 
+      console.log("Error in save courses:", e);
       console.error("Save error:", e);
+      handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "courses");
       toast_(e.message,"error"); 
     }
     setLoading(false);
@@ -689,6 +811,8 @@ function CoursesManager() {
           setConfirm(null);
           toast_("Kozi imefutwa");
         } catch (e) {
+          console.log("Error in del courses:", e);
+          handleFirestoreError(e, OperationType.DELETE, "courses");
           toast_(e.message, "error");
         }
       },
@@ -815,33 +939,42 @@ function CoursesManager() {
       </div>
 
       <div style={{ display:"grid", gap:12 }}>
-        {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna kozi bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item=>(
-          <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"14px 18px", display:"flex", gap:12, alignItems:"center" }}>
-            <AdminThumb url={item.imageUrl} fallback="🎓" />
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:800, fontSize:15, marginBottom:2 }}>{item.title}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.free?"🆓 Bure":"⭐ Paid"} · {item.price} · {(item.lessons||[]).length} lessons</div>
+        {dataLoading ? (
+          <>
+            <Skeleton />
+            <Skeleton />
+            <Skeleton />
+          </>
+        ) : docs.length===0 ? (
+          <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna kozi bado. Ongeza ya kwanza! 👆</div>
+        ) : (
+          docs.map(item=>(
+            <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"14px 18px", display:"flex", gap:12, alignItems:"center" }}>
+              <AdminThumb url={item.imageUrl} fallback="🎓" />
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:15, marginBottom:2 }}>{item.title}</div>
+                <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.free?"🆓 Bure":"⭐ Paid"} · {item.price} · {(item.lessons||[]).length} lessons</div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <Btn onClick={()=>{
+                  setEditing(item.id);
+                  setForm({
+                    ...form, // Default values from initial state
+                    ...item,
+                    carouselImages: item.carouselImages || [],
+                    lessons: Array.isArray(item.lessons) ? item.lessons.join("\n") : (item.lessons || ""),
+                    whatYouWillLearn: Array.isArray(item.whatYouWillLearn) ? item.whatYouWillLearn.join("\n") : (item.whatYouWillLearn || ""),
+                    whatYouWillGet: Array.isArray(item.whatYouWillGet) ? item.whatYouWillGet.join("\n") : (item.whatYouWillGet || ""),
+                    suitableFor: Array.isArray(item.suitableFor) ? item.suitableFor.join("\n") : (item.suitableFor || ""),
+                    requirements: Array.isArray(item.requirements) ? item.requirements.join("\n") : (item.requirements || ""),
+                  });
+                  window.scrollTo({top:0,behavior:"smooth"});
+                }} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
+                <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
+              </div>
             </div>
-            <div style={{ display:"flex", gap:8 }}>
-              <Btn onClick={()=>{
-                setEditing(item.id);
-                setForm({
-                  ...form, // Default values from initial state
-                  ...item,
-                  carouselImages: item.carouselImages || [],
-                  lessons: Array.isArray(item.lessons) ? item.lessons.join("\n") : (item.lessons || ""),
-                  whatYouWillLearn: Array.isArray(item.whatYouWillLearn) ? item.whatYouWillLearn.join("\n") : (item.whatYouWillLearn || ""),
-                  whatYouWillGet: Array.isArray(item.whatYouWillGet) ? item.whatYouWillGet.join("\n") : (item.whatYouWillGet || ""),
-                  suitableFor: Array.isArray(item.suitableFor) ? item.suitableFor.join("\n") : (item.suitableFor || ""),
-                  requirements: Array.isArray(item.requirements) ? item.requirements.join("\n") : (item.requirements || ""),
-                });
-                window.scrollTo({top:0,behavior:"smooth"});
-              }} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
-              <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -879,6 +1012,9 @@ function ProductsManager() {
       setDocs(fetched);
     }, (err) => {
       console.error("Error loading products:", err);
+      if (err.message.includes("insufficient permissions")) {
+        handleFirestoreError(err, OperationType.LIST, "products");
+      }
     });
     return () => unsub();
   }, [db]);
@@ -915,7 +1051,10 @@ function ProductsManager() {
       }
       setForm({ name: "", description: "", price: "", oldPrice: "", imageUrl: "", badge: "", url: "", category: "Electronics" });
       setEditing(null);
-    } catch (e) { toast_(e.message, "error"); }
+    } catch (e) { 
+      handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "products");
+      toast_(e.message, "error"); 
+    }
     setLoading(false);
   };
 
@@ -928,6 +1067,7 @@ function ProductsManager() {
           setConfirm(null);
           toast_("Bidhaa imefutwa");
         } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, "products");
           toast_(e.message, "error");
         }
       },
@@ -1026,6 +1166,9 @@ function WebsitesManager() {
       setDocs(fetched);
     }, (err) => {
       console.error("Error loading websites:", err);
+      if (err.message.includes("insufficient permissions")) {
+        handleFirestoreError(err, OperationType.LIST, "websites");
+      }
     });
     return () => unsub();
   }, [db]);
@@ -1057,7 +1200,10 @@ function WebsitesManager() {
       else { await addDoc(collection(db, "websites"), data); toast_("Website imewekwa live!"); }
       setForm({ name: "", url: "", description: "", iconUrl: "", imageUrl: "", bg: "linear-gradient(135deg,#667eea,#764ba2)", meta: "Free Tool", tags: "" });
       setEditing(null);
-    } catch (e) { toast_(e.message, "error"); }
+    } catch (e) { 
+      handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "websites");
+      toast_(e.message, "error"); 
+    }
     setLoading(false);
   };
 
@@ -1070,6 +1216,7 @@ function WebsitesManager() {
           setConfirm(null);
           toast_("Website imefutwa");
         } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, "websites");
           toast_(e.message, "error");
         }
       },
@@ -1155,6 +1302,9 @@ function PromptsManager() {
       setLoading(false);
     }, (err) => {
       console.error("Error loading prompts:", err);
+      if (err.message.includes("insufficient permissions")) {
+        handleFirestoreError(err, OperationType.LIST, "prompts");
+      }
       setLoading(false);
     });
     return () => unsub();
@@ -1191,10 +1341,28 @@ function PromptsManager() {
       setForm({ category: "", title: "", prompt: "", imageUrl: "", howToUse: "", tools: [] });
       setEditing(null);
     } catch (e) {
+      handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "prompts");
       toast_(e.message, "error");
     } finally {
       setLoading(false);
     }
+  };
+
+  const del = async (id) => {
+    setConfirm({
+      msg: "Una uhakika unataka kufuta prompt hii?",
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, "prompts", id));
+          setConfirm(null);
+          toast_("Prompt imefutwa");
+        } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, "prompts");
+          toast_(e.message, "error");
+        }
+      },
+      onCancel: () => setConfirm(null)
+    });
   };
 
   const addTool = () => {
@@ -1210,22 +1378,6 @@ function PromptsManager() {
 
   const removeTool = (index) => {
     setForm(f => ({ ...f, tools: f.tools.filter((_, i) => i !== index) }));
-  };
-
-  const del = (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta prompt hii?",
-      onConfirm: async () => {
-        try {
-          await deleteDoc(doc(db, "prompts", id));
-          setConfirm(null);
-          toast_("Prompt imefutwa");
-        } catch (e) {
-          toast_(e.message, "error");
-        }
-      },
-      onCancel: () => setConfirm(null)
-    });
   };
 
   return (
@@ -1313,6 +1465,11 @@ function SiteContentManager() {
           if (id === "stats") setStats(prev => ({ ...prev, ...data }));
           if (id === "whatsapp_channel") setWaChannel(prev => ({ ...prev, ...data }));
         }
+      }, (err) => {
+        console.error(`Error loading site_settings/${id}:`, err);
+        if (err.message.includes("insufficient permissions")) {
+          handleFirestoreError(err, OperationType.GET, `site_settings/${id}`);
+        }
       })
     );
     return () => unsubs.forEach(u => u());
@@ -1324,6 +1481,7 @@ function SiteContentManager() {
       await setDoc(doc(db, "site_settings", id), { data, updatedAt: serverTimestamp() });
       toast_("Imesahihishwa kikamilifu!");
     } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, "site_settings");
       toast_(e.message, "error");
     }
     setLoading(false);
@@ -1486,6 +1644,11 @@ function FAQManager() {
     const q = query(collection(db, "faqs"), orderBy("order", "asc"));
     const unsub = onSnapshot(q, (snap) => {
       setFaqs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Error loading faqs:", err);
+      if (err.message.includes("insufficient permissions")) {
+        handleFirestoreError(err, OperationType.LIST, "faqs");
+      }
     });
     return () => unsub();
   }, [db]);
@@ -1504,7 +1667,10 @@ function FAQManager() {
       }
       setForm({ question: "", answer: "", category: "General", order: faqs.length + 1, isActive: true });
       setEditing(null);
-    } catch (e) { toast_(e.message, "error"); }
+    } catch (e) { 
+      handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "faqs");
+      toast_(e.message, "error"); 
+    }
     setLoading(false);
   };
 
@@ -1512,9 +1678,14 @@ function FAQManager() {
     setConfirm({
       msg: "Una uhakika unataka kufuta FAQ hii?",
       onConfirm: async () => {
-        await deleteDoc(doc(db, "faqs", id));
-        setConfirm(null);
-        toast_("FAQ imefutwa");
+        try {
+          await deleteDoc(doc(db, "faqs", id));
+          setConfirm(null);
+          toast_("FAQ imefutwa");
+        } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, "faqs");
+          toast_(e.message, "error");
+        }
       },
       onCancel: () => setConfirm(null)
     });
@@ -1578,22 +1749,33 @@ function UsersManager() {
   const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
   useEffect(() => {
-    if (!db) return;
+    if (!db || !user) return;
+    /*
     const unsub = onSnapshot(collection(db, "users"), (snap) => {
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
+      try {
+        setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      } catch (e) {
+        console.error("Error in snapshot callback:", e);
+      }
     }, (err) => {
       console.error("Error loading users:", err);
+      if (err.message.includes("permission-denied")) {
+        console.warn("Permission denied for users collection");
+      }
       setLoading(false);
     });
     return () => unsub();
-  }, [db]);
+    */
+    setLoading(false);
+  }, [db, user]);
 
   const setRole = async (uid, role) => {
     try {
       await updateDoc(doc(db, "users", uid), { role });
       toast_(`Role imebadilishwa kuwa ${role}`);
     } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, "users");
       toast_(e.message, "error");
     }
   };
@@ -1607,6 +1789,7 @@ function UsersManager() {
           setConfirm(null);
           toast_("User amefutwa Firestore");
         } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, "users");
           toast_(e.message, "error");
         }
       },
@@ -1673,23 +1856,35 @@ function UsersManager() {
 // MAIN ADMIN PANEL
 // ══════════════════════════════════════════════════════
 export default function AdminPanel({ user, onBack }) {
+  console.log("user.role:", user?.role);
   const [section, setSection] = useState("overview");
   const [counts,  setCounts]  = useState({ tips:0, updates:0, deals:0, courses:0, users:0, products:0, websites:0, prompts:0 });
 
   const db = getFirebaseDb();
 
+  if (user?.role !== "admin") {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,.5)" }}>
+        <h2 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 24, marginBottom: 12 }}>⚠️ Access Denied</h2>
+        <p style={{ fontSize: 14, marginBottom: 24 }}>Huna ruhusa ya kuingia hapa. Tafadhali wasiliana na admin kama unadhani hili ni kosa.</p>
+        <Btn onClick={onBack}>Rudi Nyumbani</Btn>
+      </div>
+    );
+  }
+
   useEffect(() => {
-    if (!db) return;
+    if (!db || user?.role !== "admin") return;
     const cols = ["tips","updates","deals","courses","users","products","websites","prompts"];
     const unsubs = cols.map(c => 
       onSnapshot(collection(db, c), (snap) => {
         setCounts(prev => ({ ...prev, [c]: snap.size }));
       }, (err) => {
-        console.error(`Error loading count for ${c}:`, err);
+        console.warn(`Non-critical error loading count for ${c}:`, err.message);
+        // We don't throw here to avoid crashing the app
       })
     );
     return () => unsubs.forEach(unsub => unsub());
-  }, [db]);
+  }, [db, user?.role]);
 
   const SECTIONS = [
     { id:"overview", icon:"📊", label:"Overview" },
