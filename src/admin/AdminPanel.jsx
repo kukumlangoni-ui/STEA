@@ -1,2203 +1,8648 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, Component } from "react";
+import { NotificationManager } from "./components/NotificationManager";
+import { InstallPrompt } from "./components/InstallPrompt";
+import { motion, AnimatePresence } from "motion/react";
 import {
-  getFirebaseDb, collection, addDoc, updateDoc, deleteDoc, setDoc,
-  doc, serverTimestamp, query, limit, onSnapshot, orderBy,
-  handleFirestoreError, OperationType, sendPushNotification, isAdminEmail
-} from "../firebase.js";
-import { timeAgo } from "../hooks/useFirestore.js";
+  AlertCircle,
+  Copy,
+  Download,
+  Maximize2,
+  Check,
+  Send,
+  ChevronRight,
+  Zap,
+  BookOpen,
+  Star,
+  Users,
+  Clock,
+  Award,
+  HelpCircle,
+  ShieldCheck,
+  MessageCircle,
+  X,
+  User,
+} from "lucide-react";
+import { jsPDF } from "jspdf";
+import confetti from "canvas-confetti";
+import {
+  initFirebase,
+  getFirebaseAuth,
+  getFirebaseDb,
+  GoogleAuthProvider,
+  ADMIN_EMAIL,
+  isAdminEmail,
+  requestNotificationPermission,
+  sendPushNotification,
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  query,
+  collection,
+  orderBy,
+  serverTimestamp,
+  normalizeEmail,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+} from "./firebase.js";
+import { limit } from "firebase/firestore";
+import {
+  useCollection,
+  incrementViews,
+  timeAgo,
+  fmtViews,
+} from "./hooks/useFirestore.js";
+import AdminPanel from "./admin/AdminPanel.jsx";
+import AIChat from "./components/AIChat.jsx";
 
-const G = "#F5A623", G2 = "#FFD17C";
+// ── Error Boundary ───────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      let errorMsg = "Samahani, kuna tatizo limetokea kwenye mfumo.";
+      try {
+        const parsed = JSON.parse(this.state.error.message);
+        if (parsed.error && parsed.error.includes("insufficient permissions")) {
+          errorMsg =
+            "Huna ruhusa ya kufanya kitendo hiki. Tafadhali wasiliana na admin.";
+        }
+      } catch {
+        // Not a JSON error
+      }
+      return (
+        <div
+          style={{
+            padding: 40,
+            textAlign: "center",
+            background: "#05060a",
+            minHeight: "100vh",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#fff",
+          }}
+        >
+          <AlertCircle size={64} color="#ff4444" style={{ marginBottom: 20 }} />
+          <h2
+            style={{
+              fontFamily: "'Bricolage Grotesque', sans-serif",
+              fontSize: 28,
+              marginBottom: 12,
+            }}
+          >
+            Opps! Kuna Hitilafu
+          </h2>
+          <p
+            style={{
+              color: "rgba(255,255,255,.6)",
+              maxWidth: 500,
+              lineHeight: 1.6,
+              marginBottom: 24,
+            }}
+          >
+            {errorMsg}
+          </p>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                padding: "12px 24px",
+                borderRadius: 12,
+                border: "none",
+                background: "#F5A623",
+                color: "#111",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Jaribu Tena
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const auth = getFirebaseAuth();
+                  if (auth) await signOut(auth);
+                  window.location.href = "/";
+                } catch {
+                  window.location.href = "/";
+                }
+              }}
+              style={{
+                padding: "12px 24px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,.2)",
+                background: "transparent",
+                color: "#fff",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Logout & Home
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
-// ── Shared UI ─────────────────────────────────────────
-const Btn = ({ children, onClick, color = G, textColor = "#111", disabled, style = {} }) => (
-  <button onClick={onClick} disabled={disabled}
-    style={{ border:"none", cursor:disabled?"not-allowed":"pointer", borderRadius:12,
-      padding:"10px 18px", fontWeight:800, fontSize:13, color:textColor,
-      background:color, opacity:disabled?.6:1, transition:"all .2s",
-      display:"inline-flex", alignItems:"center", gap:8, ...style }}
-    onMouseEnter={e=>{ if(!disabled) e.currentTarget.style.opacity=".85"; }}
-    onMouseLeave={e=>{ e.currentTarget.style.opacity="1"; }}>
-    {children}
-  </button>
-);
+// ── Tokens ────────────────────────────────────────────
+const G = "#F5A623",
+  G2 = "#FFD17C",
+  CB = "#141823";
 
-const Field = ({ label, children }) => (
-  <div style={{ display:"grid", gap:6 }}>
-    <label style={{ fontSize:12, fontWeight:800, color:"rgba(255,255,255,.5)", textTransform:"uppercase", letterSpacing:".06em" }}>{label}</label>
+// ── Earth Hero Component ──────────────────────────────
+function EarthHero() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: -180,
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: "clamp(500px, 60vw, 950px)",
+        height: "clamp(500px, 60vw, 950px)",
+        zIndex: 1,
+        pointerEvents: "none",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {/* Atmosphere Glow - Outer */}
+      <motion.div
+        animate={{ opacity: [0.2, 0.4, 0.2] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+        style={{
+          position: "absolute",
+          width: "120%",
+          height: "120%",
+          borderRadius: "50%",
+          background:
+            "radial-gradient(circle, rgba(86,183,255,0.2) 0%, transparent 70%)",
+          filter: "blur(60px)",
+          zIndex: -1,
+        }}
+      />
+
+      {/* Earth Body */}
+      <motion.div
+        initial={{ rotate: 0 }}
+        animate={{ rotate: 360 }}
+        transition={{ duration: 300, repeat: Infinity, ease: "linear" }}
+        style={{
+          width: "100%",
+          height: "100%",
+          borderRadius: "50%",
+          background:
+            "url('https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?auto=format&fit=crop&q=80&w=1000') center/cover no-repeat",
+          boxShadow:
+            "inset -80px -80px 160px rgba(0,0,0,0.9), inset 20px 20px 60px rgba(86,183,255,0.2), 0 0 100px rgba(86,183,255,0.1)",
+          position: "relative",
+          overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.05)",
+        }}
+      >
+        {/* Clouds Layer Overlay - Moving independently */}
+        <motion.div
+          animate={{ x: ["-5%", "5%"], y: ["-2%", "2%"], rotate: [0, 3, 0] }}
+          transition={{
+            duration: 60,
+            repeat: Infinity,
+            repeatType: "reverse",
+            ease: "easeInOut",
+          }}
+          style={{
+            position: "absolute",
+            inset: "-10%",
+            background:
+              "url('https://www.transparenttextures.com/patterns/clouds.png')",
+            opacity: 0.35,
+            mixBlendMode: "screen",
+            filter: "brightness(1.5) contrast(1.2)",
+            zIndex: 2,
+          }}
+        />
+
+        {/* Night Lights Glow / City Lights */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "radial-gradient(circle at 75% 75%, rgba(245,166,35,0.15), transparent 50%)",
+            mixBlendMode: "overlay",
+            zIndex: 1,
+          }}
+        />
+      </motion.div>
+    </div>
+  );
+}
+
+// ── Nav ───────────────────────────────────────────────
+const NAV = [
+  { id: "home", label: "Home" },
+  { id: "tips", label: "Tech Tips" },
+  { id: "habari", label: "Tech Updates" },
+  { id: "prompts", label: "Prompt Lab" },
+  { id: "deals", label: "Deals" },
+  { id: "courses", label: "Courses" },
+  { id: "duka", label: "Duka" },
+  { id: "websites", label: "Websites" },
+];
+
+const TYPED = [
+  "Tech Tips kwa Kiswahili 💡",
+  "Courses za Kisasa 🎓",
+  "Tanzania Electronics Hub 🛍️",
+  "Websites Bora Bure 🌐",
+  "AI & ChatGPT Mastery 🤖",
+];
+
+// ── Static fallbacks (shown when Firestore is empty) ──
+const BS = {
+  gold: {
+    background: "rgba(245,166,35,.2)",
+    color: G,
+    border: "1px solid rgba(245,166,35,.3)",
+  },
+  blue: {
+    background: "rgba(59,130,246,.2)",
+    color: "#93c5fd",
+    border: "1px solid rgba(59,130,246,.3)",
+  },
+  red: {
+    background: "rgba(239,68,68,.2)",
+    color: "#fca5a5",
+    border: "1px solid rgba(239,68,68,.3)",
+  },
+  purple: {
+    background: "rgba(99,102,241,.2)",
+    color: "#a5b4fc",
+    border: "1px solid rgba(99,102,241,.3)",
+  },
+  gray: {
+    background: "rgba(255,255,255,.1)",
+    color: "rgba(255,255,255,.8)",
+    border: "1px solid rgba(255,255,255,.2)",
+  },
+};
+
+// ════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ════════════════════════════════════════════════════
+function LoadingScreen({ done }) {
+  const [hide, setHide] = useState(false);
+  useEffect(() => {
+    if (done) setTimeout(() => setHide(true), 700);
+  }, [done]);
+  if (hide) return null;
+  return (
+    <div
+      className="stea-loader-wrapper"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        transition: "opacity .7s",
+        opacity: done ? 0 : 1,
+      }}
+    >
+      <img 
+        src="/stea-logo-animated.jpg" 
+        alt="Loading STEA" 
+        className="stea-loader-logo" 
+        referrerPolicy="no-referrer"
+        onError={(e) => { e.target.style.display = 'none'; }}
+      />
+      <p className="stea-loader-text">STEA AFRICA</p>
+      <div className="stea-loader-line"></div>
+    </div>
+  );
+}
+
+function StarCanvas() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    let stars = [],
+      raf,
+      shootingStars = [];
+    const resize = () => {
+      c.width = c.offsetWidth;
+      c.height = c.offsetHeight;
+      stars = Array.from({ length: 180 }, () => ({
+        x: Math.random() * c.width,
+        y: Math.random() * c.height,
+        r: Math.random() * 1.4 + 0.3,
+        a: Math.random() * 0.55 + 0.2,
+        s: Math.random() * 0.17 + 0.04,
+      }));
+    };
+    const createShootingStar = () => {
+      shootingStars.push({
+        x: Math.random() * c.width,
+        y: Math.random() * c.height * 0.5,
+        len: Math.random() * 120 + 40,
+        speed: Math.random() * 15 + 8,
+        opacity: 1,
+      });
+    };
+    const draw = () => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      stars.forEach((s) => {
+        s.y += s.s;
+        if (s.y > c.height) {
+          s.y = -4;
+          s.x = Math.random() * c.width;
+        }
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${s.a})`;
+        ctx.fill();
+      });
+
+      if (Math.random() < 0.015) createShootingStar();
+
+      shootingStars.forEach((s, i) => {
+        s.x += s.speed;
+        s.y += s.speed * 0.4;
+        s.opacity -= 0.015;
+        if (s.opacity <= 0) {
+          shootingStars.splice(i, 1);
+          return;
+        }
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.len, s.y - s.len * 0.4);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${s.opacity})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      raf = requestAnimationFrame(draw);
+    };
+    resize();
+    draw();
+    window.addEventListener("resize", resize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+  return (
+    <canvas
+      ref={ref}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        opacity: 0.45,
+        pointerEvents: "none",
+      }}
+    />
+  );
+}
+
+function TypedText({ strings }) {
+  const [txt, setTxt] = useState("");
+  const st = useRef({ pi: 0, ci: 0, del: false });
+  const list = strings && strings.length > 0 ? strings : TYPED;
+  useEffect(() => {
+    let t;
+    const tick = () => {
+      const { pi, ci, del } = st.current;
+      const cur = list[pi % list.length];
+      if (!del) {
+        setTxt(cur.slice(0, ci + 1));
+        st.current.ci++;
+        if (ci + 1 === cur.length) {
+          st.current.del = true;
+          t = setTimeout(tick, 1900);
+        } else t = setTimeout(tick, 65);
+      } else {
+        setTxt(cur.slice(0, ci - 1));
+        st.current.ci--;
+        if (ci - 1 === 0) {
+          st.current.del = false;
+          st.current.pi = (pi + 1) % list.length;
+          t = setTimeout(tick, 320);
+        } else t = setTimeout(tick, 38);
+      }
+    };
+    t = setTimeout(tick, 1400);
+    return () => clearTimeout(t);
+  }, [list]);
+  return (
+    <div
+      style={{
+        fontSize: 15,
+        fontWeight: 700,
+        color: "#FFD17C",
+        minHeight: "1.6em",
+        margin: "4px 0 16px",
+      }}
+    >
+      {txt}
+      <span
+        style={{
+          display: "inline-block",
+          width: 2,
+          height: "1em",
+          background: G,
+          marginLeft: 2,
+          verticalAlign: "middle",
+          animation: "blink .8s step-end infinite",
+        }}
+      />
+    </div>
+  );
+}
+
+function TiltCard({ children, style = {}, className = "", onClick }) {
+  const ref = useRef(null);
+  const apply = useCallback((x, y) => {
+    const c = ref.current;
+    if (!c) return;
+    const r = c.getBoundingClientRect();
+    const px = (x - r.left) / r.width,
+      py = (y - r.top) / r.height;
+    c.style.transform = `perspective(900px) rotateX(${(0.5 - py) * 7}deg) rotateY(${(px - 0.5) * 9}deg) translateY(-6px)`;
+    c.style.boxShadow = "0 22px 54px rgba(0,0,0,.4)";
+    c.style.borderColor = "rgba(245,166,35,.25)";
+  }, []);
+  const reset = useCallback(() => {
+    if (!ref.current) return;
+    ref.current.style.transform = "";
+    ref.current.style.boxShadow = "0 12px 36px rgba(0,0,0,.2)";
+    ref.current.style.borderColor = "rgba(255,255,255,.08)";
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className={className}
+      onClick={onClick}
+      onMouseMove={(e) => apply(e.clientX, e.clientY)}
+      onMouseLeave={reset}
+      onTouchStart={(e) => {
+        const t = e.touches[0];
+        apply(t.clientX, t.clientY);
+      }}
+      onTouchMove={(e) => {
+        const t = e.touches[0];
+        apply(t.clientX, t.clientY);
+      }}
+      onTouchEnd={() => setTimeout(reset, 300)}
+      style={{
+        borderRadius: 20,
+        border: "1px solid rgba(255,255,255,.08)",
+        background: CB,
+        overflow: "hidden",
+        transition: "border-color .3s,box-shadow .3s",
+        boxShadow: "0 12px 36px rgba(0,0,0,.2)",
+        transformStyle: "preserve-3d",
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Thumb({ bg, iconUrl, name, domain, badge, bt, imageUrl }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = imageUrl && !imgError;
+  const [iconError, setIconError] = useState(false);
+  const hasIcon = iconUrl && !iconError;
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        aspectRatio: "16/9",
+        background: "rgba(255,255,255,.03)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        padding: "36px 20px 20px",
+        overflow: "hidden",
+        borderBottom: "1px solid rgba(255,255,255,.07)",
+      }}
+    >
+      {hasImage ? (
+        <img
+          loading="lazy"
+          src={imageUrl}
+          alt={name}
+          referrerPolicy="no-referrer"
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            position: "absolute",
+            inset: 0,
+          }}
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: bg,
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(circle at 30% 30%,rgba(255,255,255,.12),transparent 60%)",
+              pointerEvents: "none",
+            }}
+          />
+        </>
+      )}
+      {badge && (
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            padding: "5px 12px",
+            borderRadius: 999,
+            fontSize: 11,
+            fontWeight: 900,
+            zIndex: 5,
+            ...(BS[bt] || BS.gray),
+          }}
+        >
+          {badge}
+        </div>
+      )}
+      {!hasImage && (
+        <>
+          <div
+            style={{
+              width: 60,
+              height: 60,
+              borderRadius: 16,
+              overflow: "hidden",
+              display: "grid",
+              placeItems: "center",
+              background: "rgba(255,255,255,.1)",
+              zIndex: 2,
+              backdropFilter: "blur(10px)",
+            }}
+          >
+            {hasIcon && (
+              <img
+                src={iconUrl}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                referrerPolicy="no-referrer"
+                onError={() => setIconError(true)}
+              />
+            )}
+          </div>
+          <div
+            style={{
+              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontSize: 15,
+              fontWeight: 800,
+              color: "rgba(255,255,255,.92)",
+              zIndex: 2,
+              textAlign: "center",
+            }}
+          >
+            {name}
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "4px 12px",
+              borderRadius: 99,
+              background: "rgba(255,255,255,.15)",
+              color: "#fff",
+              zIndex: 2,
+            }}
+          >
+            {domain}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PushBtn({ children, onClick, style = {} }) {
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={(e) => {
+        e.currentTarget.querySelector(".ps").style.transform =
+          "translateY(4px)";
+        e.currentTarget.querySelector(".pf").style.transform =
+          "translateY(-4px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.querySelector(".ps").style.transform =
+          "translateY(2px)";
+        e.currentTarget.querySelector(".pf").style.transform =
+          "translateY(-2px)";
+      }}
+      onMouseDown={(e) => {
+        e.currentTarget.querySelector(".ps").style.transform =
+          "translateY(0px)";
+        e.currentTarget.querySelector(".pf").style.transform =
+          "translateY(0px)";
+      }}
+      onMouseUp={(e) => {
+        e.currentTarget.querySelector(".ps").style.transform =
+          "translateY(4px)";
+        e.currentTarget.querySelector(".pf").style.transform =
+          "translateY(-4px)";
+      }}
+      style={{
+        position: "relative",
+        border: "none",
+        background: "transparent",
+        padding: 0,
+        cursor: "pointer",
+        outline: "none",
+        ...style,
+      }}
+    >
+      <span
+        className="ps"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          borderRadius: 16,
+          background: "rgba(0,0,0,.3)",
+          transform: "translateY(2px)",
+          transition: "transform .2s cubic-bezier(.3,.7,.4,1)",
+          display: "block",
+        }}
+      />
+      <span
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          borderRadius: 16,
+          background:
+            "linear-gradient(to left,hsl(37,60%,25%),hsl(37,60%,40%),hsl(37,60%,25%))",
+          display: "block",
+        }}
+      />
+      <span
+        className="pf"
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          padding: "13px 26px",
+          borderRadius: 16,
+          fontSize: 15,
+          fontWeight: 900,
+          color: "#111",
+          background: `linear-gradient(135deg,${G},${G2})`,
+          transform: "translateY(-2px)",
+          transition: "transform .2s cubic-bezier(.3,.7,.4,1)",
+        }}
+      >
+        {children}
+      </span>
+    </button>
+  );
+}
+
+function GoldBtn({ children, onClick, style = {} }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        border: "none",
+        cursor: "pointer",
+        borderRadius: 14,
+        padding: "11px 20px",
+        fontWeight: 900,
+        color: "#111",
+        background: `linear-gradient(135deg,${G},${G2})`,
+        fontSize: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        transition: "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+        ...style,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "translateY(-4px) scale(1.05)";
+        e.currentTarget.style.boxShadow = `0 16px 32px rgba(245,166,35,.4)`;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "";
+        e.currentTarget.style.boxShadow = "";
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CopyBtn({ code }) {
+  const [c, setC] = useState(false);
+  return (
+    <button
+      onClick={() =>
+        navigator.clipboard.writeText(code).then(() => {
+          setC(true);
+          setTimeout(() => setC(false), 2000);
+        })
+      }
+      style={{
+        background: c ? G : "rgba(255,255,255,.1)",
+        color: c ? "#111" : "#fff",
+        border: `1px solid ${c ? G : "rgba(255,255,255,.15)"}`,
+        padding: "6px 14px",
+        borderRadius: 8,
+        fontWeight: 700,
+        fontSize: 12,
+        cursor: "pointer",
+        transition: "all .2s",
+      }}
+    >
+      {c ? "✅ Copied!" : "📋 Copy"}
+    </button>
+  );
+}
+
+function SHead({ title, hi, copy }) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h2
+        style={{
+          fontFamily: "'Bricolage Grotesque',sans-serif",
+          fontSize: "clamp(28px,3vw,40px)",
+          letterSpacing: "-.04em",
+          margin: "0 0 8px",
+        }}
+      >
+        {title} <span style={{ color: G }}>{hi}</span>
+      </h2>
+      {copy && (
+        <p
+          style={{
+            margin: 0,
+            color: "rgba(255,255,255,.45)",
+            lineHeight: 1.8,
+            maxWidth: 680,
+            fontSize: 15,
+          }}
+        >
+          {copy}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const W = ({ children }) => (
+  <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 14px" }}>
     {children}
   </div>
 );
 
-const Input = (props) => (
-  <input {...props} value={props.value || ""} style={{ height:46, borderRadius:12, border:"1px solid rgba(255,255,255,.1)",
-    background:"rgba(255,255,255,.05)", color:"#fff", padding:"0 14px", outline:"none",
-    fontFamily:"inherit", fontSize:14, width:"100%", ...props.style }}
-    onFocus={e=>e.target.style.borderColor=G}
-    onBlur={e=>e.target.style.borderColor="rgba(255,255,255,.1)"}/>
-);
-
-const Textarea = (props) => (
-  <textarea {...props} value={props.value || ""} style={{ borderRadius:12, border:"1px solid rgba(255,255,255,.1)",
-    background:"rgba(255,255,255,.05)", color:"#fff", padding:"12px 14px", outline:"none",
-    fontFamily:"inherit", fontSize:14, width:"100%", resize:"vertical", minHeight:100,
-    ...props.style }}
-    onFocus={e=>e.target.style.borderColor=G}
-    onBlur={e=>e.target.style.borderColor="rgba(255,255,255,.1)"}/>
-);
-
-function Toast({ msg, type }) {
-  if (!msg) return null;
-  return (
-    <div style={{ position:"fixed", bottom:24, right:24, zIndex:9999, padding:"14px 20px",
-      borderRadius:14, fontWeight:700, fontSize:14,
-      background:type==="error"?"rgba(239,68,68,.95)":"rgba(0,196,140,.95)",
-      color:"#fff", boxShadow:"0 12px 32px rgba(0,0,0,.4)",
-      animation:"slideUp .3s ease" }}>
-      {type==="error"?"❌":"✅"} {msg}
-    </div>
-  );
-}
-
-// ── Stats Card ────────────────────────────────────────
-function StatCard({ icon, label, value, color = G }) {
-  return (
-    <div style={{ borderRadius:18, border:"1px solid rgba(255,255,255,.08)", background:"#141823",
-      padding:"20px 24px", display:"flex", alignItems:"center", gap:16 }}>
-      <div style={{ width:52, height:52, borderRadius:14, display:"grid", placeItems:"center",
-        background:`${color}18`, fontSize:26 }}>{icon}</div>
-      <div>
-        <div style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, fontWeight:800,
-          color, lineHeight:1 }}>{value}</div>
-        <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginTop:4 }}>{label}</div>
-      </div>
-    </div>
-  );
-}
-
-// ── Confirm Delete Dialog ─────────────────────────────
-function ConfirmDialog({ msg, onConfirm, onCancel }) {
-  return (
-    <div style={{ position:"fixed", inset:0, zIndex:800, background:"rgba(4,5,9,.85)",
-      backdropFilter:"blur(10px)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-      <div style={{ width:"min(420px,90%)", borderRadius:22, border:"1px solid rgba(255,255,255,.12)",
-        background:"rgba(16,18,28,.98)", padding:28, boxShadow:"0 24px 60px rgba(0,0,0,.5)" }}>
-        <div style={{ fontSize:18, fontWeight:800, marginBottom:8 }}>⚠️ Confirm Delete</div>
-        <p style={{ color:"rgba(255,255,255,.6)", fontSize:14, lineHeight:1.7, margin:"0 0 24px" }}>{msg}</p>
-        <div style={{ display:"flex", gap:10 }}>
-          <Btn onClick={onConfirm} color="rgba(239,68,68,.9)" textColor="#fff">🗑️ Futa</Btn>
-          <Btn onClick={onCancel} color="rgba(255,255,255,.08)" textColor="#fff">Acha</Btn>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Image Cropper Modal ───────────────────────────────
-import ImageEditor from './ImageEditor.jsx';
-
-function ImageUploadField({ label, value, onChange }) {
-  const [loading, setLoading] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const fileInputRef = useRef(null);
-
-  const onFileChange = (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      if (file.size > 700000) { // ~700KB limit to stay under 1MB after base64
-        alert("Picha hii ni kubwa mno (zidi 700KB). Tafadhali punguza size ya picha kwanza.");
-        return;
-      }
-      setLoading(true);
-      const reader = new FileReader();
-      reader.addEventListener("load", () => {
-        console.log("Image uploaded, size:", reader.result.length);
-        onChange(reader.result);
-        setLoading(false);
-      });
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const isDataUrl = value && value.startsWith("data:image/");
-
-  return (
-    <Field label={label}>
-      {editing && isDataUrl && (
-        <ImageEditor
-          image={value}
-          onSave={(cropped) => {
-            onChange(cropped);
-            setEditing(false);
+// ── Skeleton loader ───────────────────────────────────
+function Skeleton({ type = "card" }) {
+  if (type === "prompt") {
+    return (
+      <div
+        style={{
+          borderRadius: 24,
+          border: "1px solid rgba(255,255,255,.06)",
+          background: CB,
+          overflow: "hidden",
+          height: 320,
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            background:
+              "linear-gradient(90deg,rgba(255,255,255,.02) 25%,rgba(255,255,255,.05) 50%,rgba(255,255,255,.02) 75%)",
+            backgroundSize: "200% 100%",
+            animation: "shimmer 2s infinite",
           }}
-          onCancel={() => setEditing(false)}
         />
-      )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
-    {isDataUrl ? (
-      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 12, padding: "0 10px", height: 46 }}>
-        <img src={value} style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} referrerPolicy="no-referrer" onError={(e) => { e.target.style.display = 'none'; }} />
-        <span style={{ color: "#00C48C", fontSize: 13, flex: 1, fontWeight: 700 }}>Uploaded</span>
-        <button onClick={() => setEditing(true)} style={{ background: "rgba(245,166,35,.1)", border: "none", color: G, cursor: "pointer", fontSize: 12, padding: "4px 8px", borderRadius: 6, fontWeight: 700 }}>Edit</button>
-        <button onClick={() => onChange("")} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,.5)", cursor: "pointer", fontSize: 16 }}>✕</button>
       </div>
-    ) : (
-          <Input value={value || ""} onChange={e => onChange(e.target.value)} placeholder="Weka link ya picha (sio website) au upload ➔" />
+    );
+  }
+  return (
+    <div
+      style={{
+        borderRadius: 20,
+        border: "1px solid rgba(255,255,255,.06)",
+        background: CB,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          height: 160,
+          background:
+            "linear-gradient(90deg,rgba(255,255,255,.03) 25%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.03) 75%)",
+          backgroundSize: "200% 100%",
+          animation: "shimmer 1.8s infinite",
+        }}
+      />
+      <div style={{ padding: 20 }}>
+        <div
+          style={{
+            height: 18,
+            borderRadius: 9,
+            background: "rgba(255,255,255,.05)",
+            marginBottom: 12,
+            width: "80%",
+          }}
+        />
+        <div
+          style={{
+            height: 12,
+            borderRadius: 6,
+            background: "rgba(255,255,255,.03)",
+            width: "100%",
+            marginBottom: 8,
+          }}
+        />
+        <div
+          style={{
+            height: 12,
+            borderRadius: 6,
+            background: "rgba(255,255,255,.03)",
+            width: "60%",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Article modal ─────────────────────────────────────
+function ArticleModal({ article, onClose, collection: col }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = article.imageUrl && !imgError;
+  const isTips = col === "tips";
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  });
+  return (
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 700,
+        background: "rgba(4,5,9,.88)",
+        backdropFilter: "blur(18px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px",
+        overflowY: "auto",
+      }}
+    >
+      <div
+        style={{
+          width: "min(780px,100%)",
+          borderRadius: 28,
+          border: "1px solid rgba(255,255,255,.12)",
+          background: "rgba(12,14,22,.98)",
+          boxShadow: "0 32px 80px rgba(0,0,0,.55)",
+          overflow: "hidden",
+          position: "relative",
+          maxHeight: "90vh",
+          overflowY: "auto",
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            position: "sticky",
+            top: 16,
+            left: "calc(100% - 54px)",
+            display: "block",
+            zIndex: 10,
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,.1)",
+            background: "rgba(12,14,22,.8)",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: 18,
+            marginLeft: "auto",
+            marginRight: 16,
+            backdropFilter: "blur(10px)",
+          }}
+        >
+          ✕
+        </button>
+        {hasImage && (
+          <div
+            style={{
+              width: "100%",
+              aspectRatio: "16/9",
+              overflow: "hidden",
+              borderBottom: "1px solid rgba(255,255,255,.08)",
+              background: "rgba(255,255,255,.03)",
+            }}
+          >
+            <img
+              loading="lazy"
+              src={article.imageUrl}
+              alt={article.title}
+              referrerPolicy="no-referrer"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              onError={() => setImgError(true)}
+            />
+          </div>
         )}
-        <Btn onClick={() => fileInputRef.current.click()} color="rgba(255,255,255,.08)" textColor="#fff" style={{ padding: "0 14px" }} disabled={loading}>
-          {loading ? "⏳..." : "📸 Upload"}
-        </Btn>
-        <input type="file" ref={fileInputRef} onChange={onFileChange} accept="image/*" style={{ display: "none" }} />
-      </div>
-    </Field>
-  );
-}
+        <div style={{ padding: hasImage ? "24px 32px 36px" : "0 32px 36px" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              marginBottom: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                padding: "5px 12px",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 800,
+                ...BS.gold,
+              }}
+            >
+              {article.badge}
+            </span>
+            {article.readTime && (
+              <span style={{ fontSize: 13, color: "rgba(255,255,255,.45)" }}>
+                {article.readTime} read
+              </span>
+            )}
+            {article.createdAt && (
+              <span style={{ fontSize: 13, color: "rgba(255,255,255,.35)" }}>
+                {timeAgo(article.createdAt)}
+              </span>
+            )}
+            <span style={{ fontSize: 13, color: "rgba(255,255,255,.35)" }}>
+              👁 {fmtViews(article.views)} views
+            </span>
+          </div>
+          <h1
+            style={{
+              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontSize: "clamp(22px,3vw,34px)",
+              letterSpacing: "-.04em",
+              margin: "0 0 16px",
+              lineHeight: 1.15,
+            }}
+          >
+            {article.title}
+          </h1>
+          <p
+            style={{
+              color: "rgba(255,255,255,.65)",
+              fontSize: 16,
+              lineHeight: 1.85,
+              margin: "0 0 24px",
+              borderLeft: `3px solid ${G}`,
+              paddingLeft: 16,
+            }}
+          >
+            {article.summary}
+          </p>
+          <div
+            style={{
+              color: "rgba(255,255,255,.78)",
+              fontSize: 15,
+              lineHeight: 1.9,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {article.content ||
+              "Maudhui kamili yanaendelea kuandikwa. Rudi hivi karibuni!"}
+          </div>
 
-// ══════════════════════════════════════════════════════
-// TECH CONTENT MANAGER (Tips & Updates)
-// ══════════════════════════════════════════════════════
-function AdminThumb({ url, fallback = "🖼️" }) {
-  const [error, setError] = useState(false);
-  return (
-    <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", display: "grid", placeItems: "center", background: "rgba(255,255,255,.05)" }}>
-      {url && !error ? (
-        <img src={url} style={{ width: "100%", height: "100%", objectFit: "cover" }} referrerPolicy="no-referrer" onError={() => setError(true)} />
-      ) : (
-        <span style={{ fontSize: 20 }}>{fallback}</span>
-      )}
+          {article.tags && (
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+                marginTop: 24,
+              }}
+            >
+              {(Array.isArray(article.tags) ? article.tags : []).map((t, i) => (
+                <span
+                  key={i}
+                  style={{ color: G, fontSize: 13, fontWeight: 800 }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+          {article.source && (
+            <div
+              style={{
+                marginTop: 16,
+                fontSize: 13,
+                color: "rgba(255,255,255,.35)",
+              }}
+            >
+              Chanzo: {article.source}
+            </div>
+          )}
+
+          {/* Purposeful CTAs */}
+          <div
+            style={{
+              marginTop: 40,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: 16,
+              borderTop: "1px solid rgba(255,255,255,.1)",
+              paddingTop: 32,
+            }}
+          >
+            {isTips ? (
+              <>
+                <GoldBtn
+                  onClick={() => (window.location.hash = "#courses")}
+                  style={{ justifyContent: "center" }}
+                >
+                  🎓 Jiunge na Kozi
+                </GoldBtn>
+                <button
+                  onClick={() =>
+                    window.open(
+                      `https://wa.me/8619715852043?text=Habari%20STEA,%20nahitaji%20msaada%20kuhusu%20maujanja:%20${encodeURIComponent(article.title)}`,
+                      "_blank",
+                    )
+                  }
+                  style={{
+                    padding: "12px 20px",
+                    borderRadius: 16,
+                    border: "1px solid rgba(37,211,102,.3)",
+                    background: "rgba(37,211,102,.1)",
+                    color: "#25d366",
+                    fontWeight: 800,
+                    fontSize: 14,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  💬 WhatsApp Msaada
+                </button>
+              </>
+            ) : (
+              <>
+                <GoldBtn
+                  onClick={() =>
+                    window.open(
+                      "https://8a2374dd.sibforms.com/serve/MUIFAGZR8_KuVimiiaB4VRbn_jum3slVhVnj0whoh9aEwMBVNYx41VMz5boVmclj3oBfyTIx0eWvOtqoxrzUwuMs_WhmpapKONkACfI3eivQYqjywjxuCK-svny75AYLg3jmz8HZimADld83jxEQBzcucbx3sCeoVdk7yK-2hrL4nS7pbD-N8X7Rv03HiVnFeGUUQUCKIh5RNzbmtg==",
+                      "_blank",
+                    )
+                  }
+                  style={{ justifyContent: "center" }}
+                >
+                  📩 Newsletter
+                </GoldBtn>
+                <button
+                  onClick={() =>
+                    window.open(
+                      `https://wa.me/8619715852043?text=Habari%20STEA,%20nimeona%20habari%20hii:%20${encodeURIComponent(article.title)}`,
+                      "_blank",
+                    )
+                  }
+                  style={{
+                    padding: "12px 20px",
+                    borderRadius: 16,
+                    border: "1px solid rgba(37,211,102,.3)",
+                    background: "rgba(37,211,102,.1)",
+                    color: "#25d366",
+                    fontWeight: 800,
+                    fontSize: 14,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  💬 WhatsApp Discussion
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function TechContentManager({ collectionName }) {
-  const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ 
-    type: "article", badge: "Tech", title: "", summary: "", content: "", 
-    imageUrl: "", carouselImages: [], ctaText: "", ctaUrl: "", source: "",
-    platform: "youtube", embedUrl: "", channel: "", channelImg: "🎙️", duration: "",
-    category: collectionName === "tips" ? "tech-tips" : "tech-updates",
-    sectionType: collectionName === "tips" ? "techTips" : "techUpdates"
-  });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast,   setToast]   = useState(null);
-  const [confirm, setConfirm] = useState(null);
-  const [tab,     setTab]     = useState("article");
-
-  const db = getFirebaseDb();
-  const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
-
+// ── Video modal ───────────────────────────────────────
+function VideoModal({ video, onClose, collection: col }) {
+  const isTips = col === "tips";
   useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, collectionName), limit(1000));
-    const unsub = onSnapshot(q, (snap) => {
-      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      fetched.sort((a, b) => {
-        const fieldA = a.updatedAt || a.createdAt;
-        const fieldB = b.updatedAt || b.createdAt;
-        const valA = fieldA?.toDate ? fieldA.toDate() : fieldA;
-        const valB = fieldB?.toDate ? fieldB.toDate() : fieldB;
-        const timeA = valA === null || valA === undefined ? Date.now() + 10000 : (typeof valA === 'number' ? valA : new Date(valA).getTime() || 0);
-        const timeB = valB === null || valB === undefined ? Date.now() + 10000 : (typeof valB === 'number' ? valB : new Date(valB).getTime() || 0);
-        return timeB - timeA;
-      });
-      setDocs(fetched);
-    }, (err) => {
-      console.error(`Error loading ${collectionName}:`, err);
-    });
-    return () => unsub();
-  }, [db, collectionName]);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
 
-  const save = async () => {
-    const title = (form.title || "").toString();
-    if (!title.trim()) { toast_("Weka title kwanza", "error"); return; }
-    setLoading(true);
-    try {
-      const data = { 
-        ...form, 
-        category: form.category || (collectionName === "tips" ? "tech-tips" : "tech-updates"),
-        sectionType: collectionName === "tips" ? "techTips" : "techUpdates",
-        views: form.views || 0, 
-        createdAt: form.createdAt || serverTimestamp() 
-      };
+  const getEmbedUrl = (url, platform) => {
+    if (!url) return "";
 
-      // Ensure no undefined or null values are sent to Firestore
-      Object.keys(data).forEach(key => {
-        if (data[key] === undefined || data[key] === null) data[key] = "";
-      });
-
-      if (data.imageUrl && data.imageUrl.length > 900000) {
-        throw new Error("Picha ni kubwa mno kwa database. Tafadhali tumia picha ndogo zaidi au weka link ya picha.");
-      }
-
-      if (editing) {
-        const updateData = { ...data };
-        delete updateData.id;
-        delete updateData.createdAt;
-        await updateDoc(doc(db, collectionName, editing), { ...updateData, updatedAt: serverTimestamp() });
-        toast_("Imesahihishwa!");
-      }
-      else { 
-        await addDoc(collection(db, collectionName), data);
-        toast_("Imewekwa live!");
-        try {
-          const section = collectionName === "tips" ? "tips" : "habari";
-          await sendPushNotification({ title: "New on STEA 🔥", body: `${data.title} ipo live sasa!`, url: `${window.location.origin}/?page=${section}` });
-        } catch(e) { console.warn("[FCM]", e.message); }
-      }
-      setForm({ 
-        type: "article", badge: "Tech", title: "", summary: "", content: "", 
-        imageUrl: "", carouselImages: [], ctaText: "", ctaUrl: "", source: "",
-        platform: "youtube", embedUrl: "", channel: "", channelImg: "🎙️", duration: "",
-        category: collectionName === "tips" ? "tech-tips" : "tech-updates",
-        sectionType: collectionName === "tips" ? "techTips" : "techUpdates",
-        views: 0
-      });
-      setEditing(null);
-    } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, collectionName);
-      }
-      toast_(e.message, "error");
+    // YouTube
+    if (
+      platform === "youtube" ||
+      url.includes("youtube.com") ||
+      url.includes("youtu.be")
+    ) {
+      if (url.includes("embed/")) return url;
+      const id = url.includes("v=")
+        ? url.split("v=")[1]?.split("&")[0]
+        : url.split("be/")[1]?.split("?")[0] ||
+          url.split("/").pop()?.split("?")[0];
+      return `https://www.youtube.com/embed/${id}?autoplay=1&rel=0&modestbranding=1`;
     }
-    setLoading(false);
+
+    // TikTok
+    if (platform === "tiktok" || url.includes("tiktok.com")) {
+      if (url.includes("/video/")) {
+        const id = url.split("/video/")[1]?.split("?")[0];
+        return `https://www.tiktok.com/embed/v2/${id}`;
+      }
+      if (url.includes("/v/")) {
+        const id = url.split("/v/")[1]?.split("?")[0];
+        return `https://www.tiktok.com/embed/v2/${id}`;
+      }
+      return url;
+    }
+
+    // Instagram
+    if (platform === "instagram" || url.includes("instagram.com")) {
+      const id =
+        url.split("/p/")[1]?.split("/")[0] ||
+        url.split("/reels/")[1]?.split("/")[0] ||
+        url.split("/reel/")[1]?.split("/")[0];
+      if (id) return `https://www.instagram.com/p/${id}/embed`;
+      return url;
+    }
+
+    return url;
   };
 
-  const del = async (id) => {
-    setConfirm({ msg:"Una uhakika unataka kufuta post hii? Haiwezi kurejeshwa.", onConfirm: async()=>{ await deleteDoc(doc(db,collectionName,id)); setConfirm(null); toast_("Imefutwa"); }, onCancel:()=>setConfirm(null) });
-  };
-
-  const edit = (item) => { 
-    setEditing(item.id); 
-    setForm({ ...item, carouselImages: item.carouselImages || [] }); 
-    setTab(item.type || "article"); 
-    window.scrollTo({ top: 0, behavior: "smooth" }); 
-  };
-
-  const addCarouselImage = () => setForm(f => ({ ...f, carouselImages: [...(f.carouselImages||[]), ""] }));
-  const updateCarouselImage = (i, val) => {
-    const arr = [...(form.carouselImages||[])];
-    arr[i] = val;
-    setForm(f => ({ ...f, carouselImages: arr }));
-  };
-  const removeCarouselImage = (i) => {
-    const arr = [...(form.carouselImages||[])];
-    arr.splice(i, 1);
-    setForm(f => ({ ...f, carouselImages: arr }));
-  };
+  const embedUrl = getEmbedUrl(video.embedUrl || video.url, video.platform);
+  const isVertical =
+    video.platform === "tiktok" ||
+    (video.platform === "instagram" &&
+      (video.url?.includes("/reels/") || video.url?.includes("/reel/"))) ||
+    (video.platform === "youtube" &&
+      (video.url?.includes("/shorts/") ||
+        video.embedUrl?.includes("/shorts/")));
 
   return (
-    <div>
-      {toast   && <Toast msg={toast.msg} type={toast.type}/>}
-      {confirm && <ConfirmDialog {...confirm}/>}
-      
-      <div style={{ borderRadius:20, border:"1px solid rgba(255,255,255,.08)", background:"#141823", padding:24, marginBottom:28 }}>
-        <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>
-          {editing ? "✏️ Hariri Post" : "➕ Ongeza Post Mpya"}
-        </h3>
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(4,5,9,.96)",
+        backdropFilter: "blur(24px)",
+        WebkitBackdropFilter: "blur(24px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: window.innerWidth < 600 ? "0" : "20px",
+      }}
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        style={{
+          width: isVertical ? "min(420px, 100%)" : "min(960px, 100%)",
+          height: window.innerWidth < 600 ? "100%" : "auto",
+          maxHeight: "95vh",
+          borderRadius: window.innerWidth < 600 ? 0 : 24,
+          overflow: "hidden",
+          border:
+            window.innerWidth < 600
+              ? "none"
+              : "1px solid rgba(255,255,255,.12)",
+          boxShadow: "0 32px 80px rgba(0,0,0,.8)",
+          position: "relative",
+          background: "#0c0e16",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            right: 16,
+            top: 16,
+            zIndex: 100,
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            border: "none",
+            background: "rgba(0,0,0,.6)",
+            backdropFilter: "blur(8px)",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+          }}
+        >
+          ✕
+        </button>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-          {["article","video"].map(t=>(
-            <button key={t} onClick={()=>{setTab(t);setForm(f=>({...f,type:t}));}}
-              style={{ border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:800, fontSize:13,
-                background:tab===t?`linear-gradient(135deg,${G},${G2})`:"rgba(255,255,255,.06)", color:tab===t?"#111":"rgba(255,255,255,.6)" }}>
-              {t==="article"?"📝 Article":"🎬 Video"}
+        <div
+          style={{
+            position: "relative",
+            paddingTop: isVertical ? "177.77%" : "56.25%",
+            background: "#000",
+            flexShrink: 0,
+          }}
+        >
+          <iframe
+            src={embedUrl}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              border: "none",
+            }}
+            allow="autoplay;encrypted-media;fullscreen"
+            allowFullScreen
+            title={video.title}
+          />
+        </div>
+
+        <div
+          style={{
+            padding: window.innerWidth < 600 ? "20px" : "24px 32px",
+            background: "linear-gradient(180deg, rgba(12,14,22,0.8), #0c0e16)",
+            flex: 1,
+            overflowY: "auto",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,.05)",
+                border: "1px solid rgba(255,255,255,.1)",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 20,
+              }}
+            >
+              {typeof video.channelImg === "string" &&
+              video.channelImg.length < 5
+                ? video.channelImg
+                : "🎙️"}
+            </div>
+            <div>
+              <div
+                style={{
+                  fontWeight: 800,
+                  fontSize: 17,
+                  color: "#fff",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {video.channel}
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "rgba(255,255,255,.45)",
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                }}
+              >
+                <span>👁 {fmtViews(video.views)} views</span>
+                <span
+                  style={{
+                    width: 3,
+                    height: 3,
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,0.2)",
+                  }}
+                />
+                <span
+                  style={{
+                    color: video.platform === "youtube" ? "#ff0000" : "#ff0050",
+                    fontWeight: 700,
+                  }}
+                >
+                  {video.platform?.toUpperCase()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <h3
+            style={{
+              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontSize: window.innerWidth < 600 ? 20 : 24,
+              letterSpacing: "-.03em",
+              margin: "0 0 24px",
+              color: "#fff",
+              lineHeight: 1.3,
+            }}
+          >
+            {video.title}
+          </h3>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              marginTop: "auto",
+            }}
+          >
+            {isTips ? (
+              <GoldBtn
+                onClick={() => {
+                  onClose();
+                  window.location.hash = "#courses";
+                }}
+                style={{ padding: "12px 24px" }}
+              >
+                🎓 Jiunge na Kozi
+              </GoldBtn>
+            ) : (
+              <GoldBtn
+                onClick={() =>
+                  window.open(
+                    "https://8a2374dd.sibforms.com/serve/MUIFAGZR8_KuVimiiaB4VRbn_jum3slVhVnj0whoh9aEwMBVNYx41VMz5boVmclj3oBfyTIx0eWvOtqoxrzUwuMs_WhmpapKONkACfI3eivQYqjywjxuCK-svny75AYLg3jmz8HZimADld83jxEQBzcucbx3sCeoVdk7yK-2hrL4nS7pbD-N8X7Rv03HiVnFeGUUQUCKIh5RNzbmtg==",
+                    "_blank",
+                  )
+                }
+                style={{ padding: "12px 24px" }}
+              >
+                📩 Newsletter
+              </GoldBtn>
+            )}
+            <button
+              onClick={() =>
+                window.open(
+                  `https://wa.me/8619715852043?text=Habari%20STEA,%20nimeona%20video%20hii:%20${encodeURIComponent(video.title)}`,
+                  "_blank",
+                )
+              }
+              style={{
+                padding: "12px 24px",
+                borderRadius: 16,
+                border: "1px solid rgba(37,211,102,.3)",
+                background: "rgba(37,211,102,.1)",
+                color: "#25d366",
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                transition: "all 0.2s",
+              }}
+            >
+              <MessageCircle size={18} />
+              WhatsApp Discussion
             </button>
-          ))}
-        </div>
-
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Badge (e.g. Android, AI, News)"><Input value={form.badge} onChange={e => setForm(f => ({ ...f, badge: e.target.value }))} placeholder="Tech" /></Field>
-            <Field label="Category (e.g. ai, android, pc)"><Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="tech-tips" /></Field>
           </div>
-          <Field label="Title *"><Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Title..." /></Field>
-          
-          {tab === "article" && (
-            <>
-              <ImageUploadField label="Thumbnail Image URL (16:9)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-              <Field label="Short Intro / Summary"><Textarea value={form.summary} onChange={e => setForm(f => ({ ...f, summary: e.target.value }))} placeholder="Short description..." style={{ minHeight: 60 }} /></Field>
-              <Field label="Step-by-step Content"><Textarea value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} placeholder="Full content..." style={{ minHeight: 150 }} /></Field>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <Field label="CTA Button Text"><Input value={form.ctaText} onChange={e => setForm(f => ({ ...f, ctaText: e.target.value }))} placeholder="e.g. Read More" /></Field>
-                <Field label="CTA Button URL"><Input value={form.ctaUrl} onChange={e => setForm(f => ({ ...f, ctaUrl: e.target.value }))} placeholder="https://..." /></Field>
-              </div>
-              
-              {collectionName === "updates" && (
-                <Field label="Optional Source"><Input value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} placeholder="e.g. TechCrunch" /></Field>
-              )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
 
-              <div style={{ marginTop: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,.6)", textTransform: "uppercase", letterSpacing: 1 }}>Image Carousel (Optional, Max 20)</div>
-                  <Btn onClick={addCarouselImage} style={{ padding: "4px 12px", fontSize: 12 }} color="rgba(255,255,255,.05)">+ Add Image</Btn>
-                </div>
-                <div style={{ display: "grid", gap: 10 }}>
-                  {(form.carouselImages||[]).map((img, i) => (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 40px", gap: 10, alignItems: "end" }}>
-                      <ImageUploadField label={`Image ${i+1} URL`} value={img} onChange={val => updateCarouselImage(i, val)} />
-                      <Btn onClick={() => removeCarouselImage(i)} color="rgba(239,68,68,.1)" textColor="#fca5a5" style={{ padding: 10, marginBottom: 4 }}>✕</Btn>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
+// ── Article Card ──────────────────────────────────────
+function ArticleCard({ item, onRead, collection: col }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = item.imageUrl && !imgError;
+  const handleRead = () => {
+    if (item.id && !item.id.startsWith("f") && !item.id.startsWith("u"))
+      incrementViews(col, item.id);
+    onRead(item);
+  };
+  return (
+    <TiltCard
+      style={{ height: "100%", display: "flex", flexDirection: "column" }}
+    >
+      <div
+        style={{
+          flexShrink: 0,
+          padding: hasImage ? 0 : "18px 18px 10px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          background:
+            "linear-gradient(135deg,rgba(245,166,35,.1),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",
+          aspectRatio: hasImage ? "16/9" : "auto",
+          minHeight: hasImage ? 0 : 90,
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        {hasImage ? (
+          <img
+            src={item.imageUrl}
+            alt={item.title}
+            referrerPolicy="no-referrer"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              position: "absolute",
+              inset: 0,
+            }}
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "flex-start",
+              width: "100%",
+              padding: "20px",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                padding: "4px 10px",
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 800,
+                ...BS.gold,
+              }}
+            >
+              {item.badge}
+            </span>
+            <div
+              style={{
+                fontSize: 12,
+                color: "rgba(255,255,255,.4)",
+                marginTop: 8,
+              }}
+            >
+              {item.readTime || "5 min"} read
+            </div>
+          </div>
+        )}
+        {hasImage && (
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              left: 12,
+              padding: "4px 10px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 800,
+              ...BS.gold,
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            {item.badge}
+          </div>
+        )}
+      </div>
+      <div
+        style={{
+          padding: 18,
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <h3
+          style={{
+            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontSize: 18,
+            margin: "0 0 9px",
+            letterSpacing: "-.03em",
+            lineHeight: 1.25,
+          }}
+        >
+          {item.title}
+        </h3>
+        <p
+          style={{
+            color: "rgba(255,255,255,.62)",
+            fontSize: 14,
+            lineHeight: 1.75,
+            margin: "0 0 16px",
+            flex: 1,
+          }}
+        >
+          {item.summary}
+        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+            marginBottom: 16,
+            borderTop: "1px solid rgba(255,255,255,.05)",
+            paddingTop: 12,
+          }}
+        >
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,.35)" }}>
+            👁 {fmtViews(item.views)}
+          </span>
+          {item.createdAt && (
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,.35)" }}>
+              {timeAgo(item.createdAt)}
+            </span>
           )}
-
-          {tab === "video" && (
-            <>
-              <ImageUploadField label="Thumbnail Image URL" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-              <Field label="Short Caption"><Textarea value={form.summary} onChange={e => setForm(f => ({ ...f, summary: e.target.value }))} placeholder="Caption..." style={{ minHeight: 60 }} /></Field>
-              <Field label="Watch URL (External Link or Embed)"><Input value={form.embedUrl} onChange={e => setForm(f => ({ ...f, embedUrl: e.target.value }))} placeholder="https://youtube.com/watch?v=..." /></Field>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <Field label="Creator Name"><Input value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))} placeholder="e.g. MKBHD" /></Field>
-                <Field label="Creator Profile Image (Emoji or URL)"><Input value={form.channelImg} onChange={e => setForm(f => ({ ...f, channelImg: e.target.value }))} placeholder="🎙️ or https://..." /></Field>
-              </div>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <Field label="Platform Icon (youtube, tiktok, instagram)"><Input value={form.platform} onChange={e => setForm(f => ({ ...f, platform: e.target.value }))} placeholder="youtube" /></Field>
-                <Field label="Duration (Optional)"><Input value={form.duration} onChange={e => setForm(f => ({ ...f, duration: e.target.value }))} placeholder="10:00" /></Field>
-              </div>
-            </>
-          )}
-
-          <div style={{ display:"flex", gap:10 }}>
-            <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
-            {editing && <Btn onClick={()=>{setEditing(null);setForm({type:"article",badge:"Tech",title:"",summary:"",content:"",imageUrl:"",carouselImages:[],ctaText:"",ctaUrl:"",source:"",platform:"youtube",embedUrl:"",channel:"",channelImg:"🎙️",duration:""});}} color="rgba(255,255,255,.08)" textColor="#fff">✕ Acha</Btn>}
-          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <GoldBtn
+            onClick={handleRead}
+            style={{
+              fontSize: 13,
+              padding: "9px 16px",
+              flex: 1,
+              justifyContent: "center",
+            }}
+          >
+            📖 Soma Zaidi
+          </GoldBtn>
+          <button
+            onClick={() =>
+              window.open(
+                `https://wa.me/8619715852043?text=Habari%20STEA,%20nahitaji%20msaada%20kuhusu%20maujanja:%20${encodeURIComponent(item.title)}`,
+                "_blank",
+              )
+            }
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 12,
+              border: "1px solid rgba(37,211,102,.3)",
+              background: "rgba(37,211,102,.1)",
+              color: "#25d366",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <MessageCircle size={18} />
+          </button>
         </div>
       </div>
-
-      <div style={{ display: "grid", gap: 12 }}>
-        {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna content bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item => (
-          <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", display: "grid", placeItems: "center", background: "rgba(255,255,255,.05)", fontSize: 20 }}>
-              {item.type === "video" ? "▶️" : "📝"}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{item.title}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.type} • {item.summary?.substring(0, 40)}...</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => edit(item)} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
-              <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+    </TiltCard>
   );
 }
 
-// ══════════════════════════════════════════════════════
-// DEALS MANAGER
-// ══════════════════════════════════════════════════════
-function DealsManager() {
-  const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ 
-    imageUrl: "", name: "", description: "", dealType: "direct_offer", directLink: "", affiliateLink: "", whatsappLink: "", promoCode: "", 
-    oldPrice: "", newPrice: "", expiryDate: "", badge: "", featured: false, category: "hosting",
-    fullDescription: "", whyThisDeal: "", includedFeatures: "", savingsText: "", ctaText: "Pata Deal", provider: "", terms: "",
-    joinedCount: "", liveJoinedText: "", todayJoinedCount: "", rating: "5.0", reviewText: "", urgencyText: ""
-  });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast,   setToast]   = useState(null);
-  const [confirm, setConfirm] = useState(null);
-
-  const db = getFirebaseDb();
-  const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "deals"), limit(1000));
-    const unsub = onSnapshot(q, (snap) => {
-      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      fetched.sort((a, b) => {
-        const fieldA = a.updatedAt || a.createdAt;
-        const fieldB = b.updatedAt || b.createdAt;
-        const valA = fieldA?.toDate ? fieldA.toDate() : fieldA;
-        const valB = fieldB?.toDate ? fieldB.toDate() : fieldB;
-        const timeA = valA === null || valA === undefined ? Date.now() + 10000 : (typeof valA === 'number' ? valA : new Date(valA).getTime() || 0);
-        const timeB = valB === null || valB === undefined ? Date.now() + 10000 : (typeof valB === 'number' ? valB : new Date(valB).getTime() || 0);
-        return timeB - timeA;
-      });
-      setDocs(fetched);
-    }, (err) => {
-      console.error("Error loading deals:", err);
-    });
-    return () => unsub();
-  }, [db]);
-
-  const save = async () => {
-    const name = (form.name || "").toString();
-    if (!name.trim()) { toast_("Weka jina la deal kwanza", "error"); return; }
-    setLoading(true);
-    try {
-      const data = { ...form, createdAt: serverTimestamp() };
-
-      // Ensure no undefined or null values are sent to Firestore
-      Object.keys(data).forEach(key => {
-        if (data[key] === undefined || data[key] === null) data[key] = "";
-      });
-
-      if (data.imageUrl && data.imageUrl.length > 900000) {
-        throw new Error("Picha ni kubwa mno kwa database. Tafadhali tumia picha ndogo zaidi au weka link ya picha.");
-      }
-
-      if (editing) {
-        const updateData = { ...data };
-        delete updateData.id;
-        delete updateData.createdAt;
-        console.log("Updating deal:", editing, "Fields count:", Object.keys(updateData).length);
-        await updateDoc(doc(db,"deals",editing), { ...updateData, updatedAt: serverTimestamp() });
-        toast_("Imesahihishwa!");
-      }
-      else          { 
-        console.log("Adding new deal:", data);
-        await addDoc(collection(db,"deals"), data); 
-        toast_("Deal imewekwa live!"); 
-      }
-      setForm({ 
-        imageUrl: "", name: "", description: "", dealType: "direct_offer", directLink: "", affiliateLink: "", whatsappLink: "", promoCode: "", 
-        oldPrice: "", newPrice: "", expiryDate: "", badge: "", featured: false, category: "hosting",
-        fullDescription: "", whyThisDeal: "", includedFeatures: "", savingsText: "", ctaText: "Pata Deal", provider: "", terms: "",
-        joinedCount: "", liveJoinedText: "", todayJoinedCount: "", rating: "5.0", reviewText: "", urgencyText: ""
-      });
-      setEditing(null);
-    } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "deals");
-      }
-      toast_(e.message, "error");
-    }
-    setLoading(false);
+// ── Video Card ────────────────────────────────────────
+function VideoCard({ item, onPlay, collection: col }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = item.imageUrl && !imgError;
+  const handlePlay = () => {
+    if (item.id && !item.id.startsWith("f") && !item.id.startsWith("u"))
+      incrementViews(col, item.id);
+    onPlay(item);
   };
-
-  const del = async (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta deal hii? Hatua hii haiwezi kurejeshwa.",
-      onConfirm: async () => {
-        try {
-          await deleteDoc(doc(db, "deals", id));
-          setConfirm(null);
-          toast_("Deal imefutwa");
-        } catch (e) {
-          toast_(e.message, "error");
-        }
-      },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  const toggle = async (item) => {
-    await updateDoc(doc(db,"deals",item.id), { active:!item.active });
-  };
-
   return (
-    <div>
-      {toast   && <Toast msg={toast.msg} type={toast.type}/>}
-      {confirm && <ConfirmDialog {...confirm}/>}
-
-      <div style={{ borderRadius:20, border:"1px solid rgba(255,255,255,.08)", background:"#141823", padding:24, marginBottom:28 }}>
-        <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>
-          {editing?"✏️ Hariri Deal":"➕ Ongeza Deal Mpya"}
-        </h3>
-        <div style={{ display:"grid", gap:16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Jina la Deal *"><Input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Canva Pro"/></Field>
-            <Field label="Deal Type">
-              <select value={form.dealType} onChange={e => setForm(f => ({ ...f, dealType: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 8, background: "#1a1d2e", border: "1px solid rgba(255,255,255,.1)", color: "white" }}>
-                <option value="direct_offer">Direct Offer</option>
-                <option value="promo_code">Promo Code</option>
-                <option value="affiliate_offer">Affiliate Offer</option>
-                <option value="lead_offer">Lead Offer</option>
-              </select>
-            </Field>
-          </div>
-          <ImageUploadField label="Real Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-          <Field label="Short Intro"><Textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Maelezo mafupi ya deal hii..." style={{minHeight:60}}/></Field>
-          <Field label="Full Description"><Textarea value={form.fullDescription} onChange={e=>setForm(f=>({...f,fullDescription:e.target.value}))} placeholder="Maelezo kamili ya deal hii..." style={{minHeight:100}}/></Field>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Why This Deal?"><Textarea value={form.whyThisDeal} onChange={e=>setForm(f=>({...f,whyThisDeal:e.target.value}))} placeholder="Kwa nini ununue deal hii?" style={{minHeight:80}}/></Field>
-            <Field label="Included Features (One per line)"><Textarea value={form.includedFeatures} onChange={e=>setForm(f=>({...f,includedFeatures:e.target.value}))} placeholder="Feature 1&#10;Feature 2&#10;Feature 3" style={{minHeight:80}}/></Field>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Direct Link"><Input value={form.directLink} onChange={e=>setForm(f=>({...f,directLink:e.target.value}))} placeholder="https://..."/></Field>
-            <Field label="Affiliate Link"><Input value={form.affiliateLink} onChange={e=>setForm(f=>({...f,affiliateLink:e.target.value}))} placeholder="https://..."/></Field>
-            <Field label="WhatsApp Link"><Input value={form.whatsappLink} onChange={e=>setForm(f=>({...f,whatsappLink:e.target.value}))} placeholder="https://wa.me/..."/></Field>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Promo Code"><Input value={form.promoCode} onChange={e=>setForm(f=>({...f,promoCode:e.target.value}))} placeholder="STEA60"/></Field>
-            <Field label="Old Price"><Input value={form.oldPrice} onChange={e=>setForm(f=>({...f,oldPrice:e.target.value}))} placeholder="$15"/></Field>
-            <Field label="New Price"><Input value={form.newPrice} onChange={e=>setForm(f=>({...f,newPrice:e.target.value}))} placeholder="$6"/></Field>
-            <Field label="Savings Text"><Input value={form.savingsText} onChange={e=>setForm(f=>({...f,savingsText:e.target.value}))} placeholder="Save 60%"/></Field>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Badge"><Input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="HOT"/></Field>
-            <Field label="Category"><Input value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} placeholder="hosting"/></Field>
-            <Field label="Provider/Source"><Input value={form.provider} onChange={e=>setForm(f=>({...f,provider:e.target.value}))} placeholder="Hostinger"/></Field>
-          </div>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="CTA Button Text"><Input value={form.ctaText} onChange={e=>setForm(f=>({...f,ctaText:e.target.value}))} placeholder="Pata Deal"/></Field>
-            <Field label="Expiry Date"><Input type="date" value={form.expiryDate} onChange={e=>setForm(f=>({...f,expiryDate:e.target.value}))} /></Field>
-          </div>
-
-          <h4 style={{ margin: "10px 0 0", color: "rgba(255,255,255,0.8)" }}>Trust & Persuasion Elements</h4>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Total Joined Count"><Input value={form.joinedCount} onChange={e=>setForm(f=>({...f,joinedCount:e.target.value}))} placeholder="1200"/></Field>
-            <Field label="Live Joined Text"><Input value={form.liveJoinedText} onChange={e=>setForm(f=>({...f,liveJoinedText:e.target.value}))} placeholder="120+ members joined"/></Field>
-            <Field label="Today Joined Count"><Input value={form.todayJoinedCount} onChange={e=>setForm(f=>({...f,todayJoinedCount:e.target.value}))} placeholder="15"/></Field>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Rating (e.g. 4.9)"><Input value={form.rating} onChange={e=>setForm(f=>({...f,rating:e.target.value}))} placeholder="5.0"/></Field>
-            <Field label="Urgency Text"><Input value={form.urgencyText} onChange={e=>setForm(f=>({...f,urgencyText:e.target.value}))} placeholder="Offer ends soon!"/></Field>
-          </div>
-          <Field label="Short Review/Testimonial"><Textarea value={form.reviewText} onChange={e=>setForm(f=>({...f,reviewText:e.target.value}))} placeholder="This deal saved me $100! - John" style={{minHeight:60}}/></Field>
-          <Field label="Terms / Important Notes"><Textarea value={form.terms} onChange={e=>setForm(f=>({...f,terms:e.target.value}))} placeholder="Valid for new users only..." style={{minHeight:60}}/></Field>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <input type="checkbox" checked={form.featured} onChange={e => setForm(f => ({ ...f, featured: e.target.checked }))} />
-            Featured
-          </div>
-          <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : editing ? "💾 Hifadhi" : "🚀 Weka Live"}</Btn>
-
-          <Field label="Background Gradient">
-            <Input value={form.bg} onChange={e=>setForm(f=>({...f,bg:e.target.value}))} placeholder="linear-gradient(135deg,#00c4cc,#7d2ae8)"/>
-          </Field>
+    <TiltCard
+      style={{ height: "100%", display: "flex", flexDirection: "column" }}
+    >
+      <div
+        onClick={handlePlay}
+        style={{
+          flexShrink: 0,
+          position: "relative",
+          aspectRatio: "16/9",
+          background: "rgba(255,255,255,.03)",
+          cursor: "pointer",
+          overflow: "hidden",
+        }}
+      >
+        {hasImage ? (
+          <img
+            src={item.imageUrl}
+            alt={item.title}
+            referrerPolicy="no-referrer"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              position: "absolute",
+              inset: 0,
+            }}
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "linear-gradient(135deg,rgba(245,166,35,.12),rgba(255,255,255,.02)),linear-gradient(180deg,#1e2030,#161820)",
+            }}
+          />
+        )}
+        {hasImage && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0,0,0,.3)",
+            }}
+          />
+        )}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <motion.div
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            style={{
+              width: 60,
+              height: 60,
+              borderRadius: "50%",
+              background: G,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 22,
+              color: "#111",
+              fontWeight: 900,
+              boxShadow: `0 0 30px rgba(245,166,35,.4)`,
+            }}
+          >
+            ▶
+          </motion.div>
+        </div>
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            left: 10,
+            padding: "4px 10px",
+            borderRadius: 999,
+            fontSize: 11,
+            fontWeight: 800,
+            ...(item.platform === "youtube" ? BS.red : BS.purple),
+          }}
+        >
+          {item.platform === "youtube" ? "▶ YouTube" : "♪ TikTok"}
+        </div>
+        <div
+          style={{
+            position: "absolute",
+            bottom: 10,
+            right: 10,
+            padding: "4px 8px",
+            borderRadius: 8,
+            fontSize: 11,
+            fontWeight: 700,
+            background: "rgba(0,0,0,.7)",
+            color: "#fff",
+          }}
+        >
+          {item.duration}
         </div>
       </div>
-
-      <div style={{ display:"grid", gap:12 }}>
-        {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna deals bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item=>(
-          <div key={item.id} style={{ borderRadius:16, border:`1px solid ${item.active?"rgba(255,255,255,.07)":"rgba(239,68,68,.2)"}`, background:item.active?"#1a1d2e":"rgba(239,68,68,.05)", padding:"14px 18px", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
-            <AdminThumb url={item.imageUrl} fallback={item.type === "video" ? "🎬" : "📄"} />
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontWeight:800, fontSize:15 }}>{item.name}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.domain} · {item.code?"Code: "+item.code:"Referral"}</div>
-            </div>
-            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={()=>toggle(item)} style={{ border:`1px solid ${item.active?"rgba(0,196,140,.3)":"rgba(239,68,68,.3)"}`, borderRadius:10, padding:"6px 12px", background:item.active?"rgba(0,196,140,.1)":"rgba(239,68,68,.1)", color:item.active?"#67f0c1":"#fca5a5", cursor:"pointer", fontWeight:700, fontSize:12 }}>
-                {item.active?"✅ Live":"⏸ Paused"}
-              </button>
-              <Btn onClick={()=>{setEditing(item.id);setForm({...item});window.scrollTo({top:0,behavior:"smooth"});}} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
-              <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
+      <div
+        style={{
+          padding: 16,
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            marginBottom: 12,
+          }}
+        >
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,.1)",
+              display: "grid",
+              placeItems: "center",
+              fontSize: 14,
+            }}
+          >
+            {typeof item.channelImg === "string" && item.channelImg.length < 5
+              ? item.channelImg
+              : "🎙️"}
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13 }}>{item.channel}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,.4)" }}>
+              👁 {fmtViews(item.views)} views
             </div>
           </div>
-        ))}
+        </div>
+        <h3
+          style={{
+            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontSize: 16,
+            margin: "0 0 16px",
+            letterSpacing: "-.02em",
+            lineHeight: 1.3,
+            flex: 1,
+          }}
+        >
+          {item.title}
+        </h3>
+        <div style={{ display: "flex", gap: 8 }}>
+          <GoldBtn
+            onClick={handlePlay}
+            style={{
+              fontSize: 12,
+              padding: "8px 14px",
+              flex: 1,
+              justifyContent: "center",
+            }}
+          >
+            ▶ Tazama Sasa
+          </GoldBtn>
+          <button
+            onClick={() =>
+              window.open(
+                `https://wa.me/8619715852043?text=Habari%20STEA,%20nimeona%20video%20hii:%20${encodeURIComponent(item.title)}`,
+                "_blank",
+              )
+            }
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 12,
+              border: "1px solid rgba(37,211,102,.3)",
+              background: "rgba(37,211,102,.1)",
+              color: "#25d366",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <MessageCircle size={16} />
+          </button>
+        </div>
       </div>
-    </div>
+    </TiltCard>
   );
 }
 
-// ══════════════════════════════════════════════════════
-// COURSES MANAGER
-// ══════════════════════════════════════════════════════
-function CoursesManager() {
-  const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ 
-    imageUrl:"", carouselImages: [], title:"", desc:"", free:true, price:"Bure · Start now", cta:"Anza Sasa →", lessons:"", whatsapp:"https://wa.me/255768260933", accent:"",
-    badge: "New", level: "Beginner", instructorName: "STEA Instructor", duration: "4 Weeks", totalLessons: "12", studentsCount: "0", rating: "5.0",
-    oldPrice: "", newPrice: "", shortPromise: "Jifunze stadi za kisasa kwa Kiswahili.",
-    whatYouWillLearn: "", whatYouWillGet: "", suitableFor: "", requirements: "",
-    language: "Kiswahili", certificateIncluded: true, supportType: "WhatsApp Group",
-    adminWhatsAppNumber: "255768260933", customWhatsAppMessageTemplate: "",
-    priceDisclaimerShort: "Bei elekezi. Thibitisha malipo kupitia STEA.",
-    priceDisclaimerFull: "Maelekezo rasmi ya kujiunga na malipo yatathibitishwa kupitia STEA pekee. Usifanye malipo nje ya mawasiliano rasmi ya STEA.",
-    testimonial1Name: "", testimonial1Text: "", testimonial1Role: "",
-    testimonial2Name: "", testimonial2Text: "", testimonial2Role: "",
-    testimonial3Name: "", testimonial3Text: "", testimonial3Role: "",
-    faq1Question: "Nitaanzaje baada ya kulipia?", faq1Answer: "Baada ya malipo kuthibitishwa, utatumiwa link ya kujiunga na darasa na kuanza masomo mara moja.",
-    faq2Question: "Nitapata support?", faq2Answer: "Ndiyo, utapata msaada wa moja kwa moja kupitia group letu la WhatsApp la wanafunzi.",
-    faq3Question: "Je, bei inaweza kubadilika?", faq3Answer: "Bei inaweza kubadilika kulingana na ofa zilizopo. Hakikisha unathibitisha bei ya sasa kabla ya kulipia."
-  });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast,   setToast]   = useState(null);
-  const [confirm, setConfirm] = useState(null);
+// ════════════════════════════════════════════════════
+// AUTH MODAL
+// ════════════════════════════════════════════════════
+function AuthModal({ onClose, onUser }) {
+  const [tog, setTog] = useState(false);
+  const [mode, setMode] = useState("login");
+  const [name, setName] = useState(""),
+    [email, setEmail] = useState(""),
+    [pw, setPw] = useState(""),
+    [pw2, setPw2] = useState("");
+  const [err, setErr] = useState(""),
+    [loading, setLoading] = useState(false);
 
-  const db = getFirebaseDb();
-  const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+  const switchTo = (m) => {
+    if (m === "register") {
+      setTog(true);
+      setTimeout(() => setMode("register"), 80);
+    } else if (m === "login") {
+      setTog(false);
+      setTimeout(() => setMode("login"), 80);
+    } else setMode("forgot");
+    setErr("");
+  };
 
-  useEffect(() => {
+  const saveUser = async (user, displayName, provider) => {
+    const db = getFirebaseDb();
     if (!db) return;
-    const q = query(collection(db, "courses"), limit(1000));
-    const unsub = onSnapshot(q, (snap) => {
-      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      fetched.sort((a, b) => {
-        const fieldA = a.updatedAt || a.createdAt;
-        const fieldB = b.updatedAt || b.createdAt;
-        const valA = fieldA?.toDate ? fieldA.toDate() : fieldA;
-        const valB = fieldB?.toDate ? fieldB.toDate() : fieldB;
-        const timeA = valA === null || valA === undefined ? Date.now() + 10000 : (typeof valA === 'number' ? valA : new Date(valA).getTime() || 0);
-        const timeB = valB === null || valB === undefined ? Date.now() + 10000 : (typeof valB === 'number' ? valB : new Date(valB).getTime() || 0);
-        return timeB - timeA;
-      });
-      setDocs(fetched);
-    }, (err) => {
-      console.error("Error loading courses:", err);
-    });
-    return () => unsub();
-  }, [db]);
-
-  const addCarouselImage = () => setForm(f => ({ ...f, carouselImages: [...(f.carouselImages||[]), ""] }));
-  const updateCarouselImage = (i, val) => {
-    const arr = [...(form.carouselImages||[])];
-    arr[i] = val;
-    setForm(f => ({ ...f, carouselImages: arr }));
-  };
-  const removeCarouselImage = (i) => {
-    const arr = [...(form.carouselImages||[])];
-    arr.splice(i, 1);
-    setForm(f => ({ ...f, carouselImages: arr }));
-  };
-
-  const save = async () => {
-    const title = (form.title || "").toString();
-    if (!title.trim()) { toast_("Weka title kwanza", "error"); return; }
-    setLoading(true);
-    console.log("Saving course data...", { id: editing, imageUrlLength: form.imageUrl?.length });
     try {
-      const processArray = (val) => {
-        if (typeof val === 'string') return val.split("\n").map(l=>l.trim()).filter(Boolean);
-        if (Array.isArray(val)) return val;
-        return [];
-      };
-
-      const data = { 
-        ...form, 
-        lessons: processArray(form.lessons),
-        whatYouWillLearn: processArray(form.whatYouWillLearn),
-        whatYouWillGet: processArray(form.whatYouWillGet),
-        suitableFor: processArray(form.suitableFor),
-        requirements: processArray(form.requirements),
-        createdAt: serverTimestamp() 
-      };
-
-      // Ensure no undefined or null values are sent to Firestore
-      Object.keys(data).forEach(key => {
-        if (data[key] === undefined || data[key] === null) data[key] = "";
+      const r = doc(db, "users", user.uid);
+      const s = await getDoc(r);
+      let role =
+        isAdminEmail(user.email)
+          ? "admin"
+          : s.exists()
+            ? s.data().role || "user"
+            : "user";
+      if (!s.exists())
+        await setDoc(r, {
+          uid: user.uid,
+          name: displayName || user.displayName || "",
+          email: user.email,
+          role,
+          provider,
+          createdAt: serverTimestamp(),
+        });
+      onUser({ ...user, role });
+    } catch (err) {
+      console.error("Error saving user:", err);
+      onUser({
+        ...user,
+        role:
+          isAdminEmail(user.email)
+            ? "admin"
+            : "user",
       });
-
-      if (data.imageUrl && data.imageUrl.length > 900000) {
-        throw new Error("Picha ni kubwa mno kwa database. Tafadhali tumia picha ndogo zaidi au weka link ya picha.");
-      }
-
-      if (editing) {
-        const updateData = { ...data };
-        delete updateData.id;
-        delete updateData.createdAt;
-        console.log("Updating document:", editing, "Fields count:", Object.keys(updateData).length);
-        await updateDoc(doc(db,"courses",editing), { ...updateData, updatedAt: serverTimestamp() });
-        toast_("Imesahihishwa!");
-      }
-      else          { 
-        console.log("Adding new document");
-        await addDoc(collection(db,"courses"), data); 
-        toast_("Kozi imewekwa live!"); 
-      }
-      setForm({ 
-        imageUrl:"", carouselImages: [], title:"", desc:"", free:true, price:"Bure · Start now", cta:"Anza Sasa →", lessons:"", whatsapp:"https://wa.me/255768260933", accent:"",
-        badge: "New", level: "Beginner", instructorName: "STEA Instructor", duration: "4 Weeks", totalLessons: "12", studentsCount: "0", rating: "5.0",
-        oldPrice: "", newPrice: "", shortPromise: "Jifunze stadi za kisasa kwa Kiswahili.",
-        whatYouWillLearn: "", whatYouWillGet: "", suitableFor: "", requirements: "",
-        language: "Kiswahili", certificateIncluded: true, supportType: "WhatsApp Group",
-        adminWhatsAppNumber: "255768260933", customWhatsAppMessageTemplate: "",
-        priceDisclaimerShort: "Bei elekezi. Thibitisha malipo kupitia STEA.",
-        priceDisclaimerFull: "Maelekezo rasmi ya kujiunga na malipo yatathibitishwa kupitia STEA pekee. Usifanye malipo nje ya mawasiliano rasmi ya STEA.",
-        testimonial1Name: "", testimonial1Text: "", testimonial1Role: "",
-        testimonial2Name: "", testimonial2Text: "", testimonial2Role: "",
-        testimonial3Name: "", testimonial3Text: "", testimonial3Role: "",
-        faq1Question: "Nitaanzaje baada ya kulipia?", faq1Answer: "Baada ya malipo kuthibitishwa, utatumiwa link ya kujiunga na darasa na kuanza masomo mara moja.",
-        faq2Question: "Nitapata support?", faq2Answer: "Ndiyo, utapata msaada wa moja kwa moja kupitia group letu la WhatsApp la wanafunzi.",
-        faq3Question: "Je, bei inaweza kubadilika?", faq3Answer: "Bei inaweza kubadilika kulingana na ofa zilizopo. Hakikisha unathibitisha bei ya sasa kabla ya kulipia.",
-        category: "web"
-      });
-      setEditing(null);
-    } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "courses");
-      }
-      toast_(e.message, "error");
     }
-    setLoading(false);
   };
 
-  const del = async (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta kozi hii? Wanafunzi waliojiunga wataathirika.",
-      onConfirm: async () => {
-        try {
-          await deleteDoc(doc(db, "courses", id));
-          setConfirm(null);
-          toast_("Kozi imefutwa");
-        } catch (e) {
-          toast_(e.message, "error");
-        }
-      },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type}/>}
-      {confirm && <ConfirmDialog {...confirm}/>}
-      <div style={{ borderRadius:20, border:"1px solid rgba(255,255,255,.08)", background:"#141823", padding:24, marginBottom:28 }}>
-        <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>
-          {editing?"✏️ Hariri Kozi":"➕ Ongeza Kozi Mpya"}
-        </h3>
-        <div style={{ display:"grid", gap:16 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <Field label="Title *"><Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Web Development"/></Field>
-            <Field label="Badge"><Input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="Bestseller / New / Hot"/></Field>
-          </div>
-
-          <ImageUploadField label="Real Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-          
-          <div style={{ marginTop: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,.6)", textTransform: "uppercase", letterSpacing: 1 }}>Image Carousel (Optional, Max 20)</div>
-              <Btn onClick={addCarouselImage} style={{ padding: "4px 12px", fontSize: 12 }} color="rgba(255,255,255,.05)">+ Add Image</Btn>
-            </div>
-            <div style={{ display: "grid", gap: 10 }}>
-              {(form.carouselImages||[]).map((img, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 40px", gap: 10, alignItems: "end" }}>
-                  <ImageUploadField label={`Image ${i+1} URL`} value={img} onChange={val => updateCarouselImage(i, val)} />
-                  <Btn onClick={() => removeCarouselImage(i)} color="rgba(239,68,68,.1)" textColor="#fca5a5" style={{ padding: 10, marginBottom: 4 }}>✕</Btn>
-                </div>
-              ))}
-            </div>
-          </div>
-          
-          <Field label="Short Promise / Value Prop"><Input value={form.shortPromise} onChange={e=>setForm(f=>({...f,shortPromise:e.target.value}))} placeholder="Jifunze stadi za kisasa kwa Kiswahili."/></Field>
-          <Field label="Maelezo"><Textarea value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Maelezo ya kozi..." style={{minHeight:80}}/></Field>
-
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
-            <Field label="Level"><Input value={form.level} onChange={e=>setForm(f=>({...f,level:e.target.value}))} placeholder="Beginner"/></Field>
-            <Field label="Duration"><Input value={form.duration} onChange={e=>setForm(f=>({...f,duration:e.target.value}))} placeholder="4 Weeks"/></Field>
-            <Field label="Total Lessons"><Input value={form.totalLessons} onChange={e=>setForm(f=>({...f,totalLessons:e.target.value}))} placeholder="12"/></Field>
-          </div>
-
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
-            <Field label="Instructor Name"><Input value={form.instructorName} onChange={e=>setForm(f=>({...f,instructorName:e.target.value}))} placeholder="STEA Instructor"/></Field>
-            <Field label="Students Count"><Input value={form.studentsCount} onChange={e=>setForm(f=>({...f,studentsCount:e.target.value}))} placeholder="150"/></Field>
-            <Field label="Rating"><Input value={form.rating} onChange={e=>setForm(f=>({...f,rating:e.target.value}))} placeholder="4.9"/></Field>
-          </div>
-
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
-            <Field label="Language"><Input value={form.language} onChange={e=>setForm(f=>({...f,language:e.target.value}))} placeholder="Kiswahili"/></Field>
-            <Field label="Support Type"><Input value={form.supportType} onChange={e=>setForm(f=>({...f,supportType:e.target.value}))} placeholder="WhatsApp Group"/></Field>
-            <Field label="Category (web, ai, marketing, design)"><Input value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} placeholder="web"/></Field>
-          </div>
-
-          <div style={{ display:"flex", alignItems:"center", gap:20 }}>
-            <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14, fontWeight:700 }}>
-              <input type="checkbox" checked={form.free} onChange={e=>setForm(f=>({...f,free:e.target.checked,price:e.target.checked?"Bure · Start now":"TZS 5,000/mwezi · M-Pesa"}))} style={{ width:18, height:18, accentColor:G }}/>
-              Kozi ya bure
-            </label>
-            <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14, fontWeight:700 }}>
-              <input type="checkbox" checked={form.certificateIncluded} onChange={e=>setForm(f=>({...f,certificateIncluded:e.target.checked}))} style={{ width:18, height:18, accentColor:G }}/>
-              Certificate Included
-            </label>
-          </div>
-
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <Field label="Old Price (e.g. TZS 50,000)"><Input value={form.oldPrice} onChange={e=>setForm(f=>({...f,oldPrice:e.target.value}))} placeholder="TZS 50,000"/></Field>
-            <Field label="New Price (e.g. TZS 25,000)"><Input value={form.newPrice} onChange={e=>setForm(f=>({...f,newPrice:e.target.value}))} placeholder="TZS 25,000"/></Field>
-          </div>
-
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <Field label="Price text (Legacy Display)"><Input value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="TZS 5,000/mwezi · M-Pesa"/></Field>
-            <Field label="CTA Button text"><Input value={form.cta} onChange={e=>setForm(f=>({...f,cta:e.target.value}))} placeholder="Jiunge Leo"/></Field>
-          </div>
-
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            <Field label="Admin WhatsApp Number"><Input value={form.adminWhatsAppNumber} onChange={e=>setForm(f=>({...f,adminWhatsAppNumber:e.target.value}))} placeholder="255768260933"/></Field>
-            <Field label="Custom WhatsApp Message"><Input value={form.customWhatsAppMessageTemplate} onChange={e=>setForm(f=>({...f,customWhatsAppMessageTemplate:e.target.value}))} placeholder="Optional custom message..."/></Field>
-          </div>
-
-          <Field label="Price Disclaimer (Short)"><Input value={form.priceDisclaimerShort} onChange={e=>setForm(f=>({...f,priceDisclaimerShort:e.target.value}))} placeholder="Bei elekezi..."/></Field>
-          <Field label="Price Disclaimer (Full)"><Textarea value={form.priceDisclaimerFull} onChange={e=>setForm(f=>({...f,priceDisclaimerFull:e.target.value}))} placeholder="Maelezo marefu ya disclaimer..." style={{minHeight:60}}/></Field>
-
-          <Field label="Lessons List (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.lessons)?form.lessons.join("\n"):form.lessons} onChange={e=>setForm(f=>({...f,lessons:e.target.value}))} placeholder="Lesson 1: Introduction\nLesson 2: Basics..." style={{minHeight:100}}/></Field>
-          <Field label="What You Will Learn (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.whatYouWillLearn)?form.whatYouWillLearn.join("\n"):form.whatYouWillLearn} onChange={e=>setForm(f=>({...f,whatYouWillLearn:e.target.value}))} placeholder="Skill 1\nSkill 2..." style={{minHeight:100}}/></Field>
-          <Field label="What You Will Get (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.whatYouWillGet)?form.whatYouWillGet.join("\n"):form.whatYouWillGet} onChange={e=>setForm(f=>({...f,whatYouWillGet:e.target.value}))} placeholder="Certificate\nSupport..." style={{minHeight:100}}/></Field>
-          <Field label="Suitable For (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.suitableFor)?form.suitableFor.join("\n"):form.suitableFor} onChange={e=>setForm(f=>({...f,suitableFor:e.target.value}))} placeholder="Beginners\nCreators..." style={{minHeight:100}}/></Field>
-          <Field label="Requirements (Moja kwa kila mstari)"><Textarea value={Array.isArray(form.requirements)?form.requirements.join("\n"):form.requirements} onChange={e=>setForm(f=>({...f,requirements:e.target.value}))} placeholder="Laptop\nInternet..." style={{minHeight:100}}/></Field>
-
-          <div style={{ borderTop:"1px solid rgba(255,255,255,.05)", paddingTop:20, marginTop:10 }}>
-            <h4 style={{ fontSize:16, marginBottom:16, color:G }}>Testimonials</h4>
-            <div style={{ display:"grid", gap:20 }}>
-              {[1,2,3].map(num => (
-                <div key={num} style={{ background:"rgba(255,255,255,.02)", padding:16, borderRadius:12, border:"1px solid rgba(255,255,255,.05)" }}>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:10 }}>
-                    <Field label={`Student ${num} Name`}><Input value={form[`testimonial${num}Name`]} onChange={e=>setForm(f=>({...f,[`testimonial${num}Name`]:e.target.value}))}/></Field>
-                    <Field label={`Student ${num} Role`}><Input value={form[`testimonial${num}Role`]} onChange={e=>setForm(f=>({...f,[`testimonial${num}Role`]:e.target.value}))}/></Field>
-                  </div>
-                  <Field label={`Student ${num} Feedback`}><Textarea value={form[`testimonial${num}Text`]} onChange={e=>setForm(f=>({...f,[`testimonial${num}Text`]:e.target.value}))} style={{minHeight:60}}/></Field>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ borderTop:"1px solid rgba(255,255,255,.05)", paddingTop:20, marginTop:10 }}>
-            <h4 style={{ fontSize:16, marginBottom:16, color:G }}>FAQs</h4>
-            <div style={{ display:"grid", gap:20 }}>
-              {[1,2,3].map(num => (
-                <div key={num} style={{ background:"rgba(255,255,255,.02)", padding:16, borderRadius:12, border:"1px solid rgba(255,255,255,.05)" }}>
-                  <Field label={`FAQ ${num} Question`}><Input value={form[`faq${num}Question`]} onChange={e=>setForm(f=>({...f,[`faq${num}Question`]:e.target.value}))}/></Field>
-                  <Field label={`FAQ ${num} Answer`}><Textarea value={form[`faq${num}Answer`]} onChange={e=>setForm(f=>({...f,[`faq${num}Answer`]:e.target.value}))} style={{minHeight:60}}/></Field>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <Field label="Accent Color (Optional Hex)"><Input value={form.accent} onChange={e=>setForm(f=>({...f,accent:e.target.value}))} placeholder="#f5a623"/></Field>
-          <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
-        </div>
-      </div>
-
-      <div style={{ display:"grid", gap:12 }}>
-        {docs.length===0 && <div style={{ textAlign:"center", padding:40, color:"rgba(255,255,255,.35)" }}>Hakuna kozi bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item=>(
-          <div key={item.id} style={{ borderRadius:16, border:"1px solid rgba(255,255,255,.07)", background:"#1a1d2e", padding:"14px 18px", display:"flex", gap:12, alignItems:"center" }}>
-            <AdminThumb url={item.imageUrl} fallback="🎓" />
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:800, fontSize:15, marginBottom:2 }}>{item.title}</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>{item.free?"🆓 Bure":"⭐ Paid"} · {item.price} · {(item.lessons||[]).length} lessons</div>
-            </div>
-            <div style={{ display:"flex", gap:8 }}>
-              <Btn onClick={()=>{
-                setEditing(item.id);
-                setForm({
-                  ...form, // Default values from initial state
-                  ...item,
-                  carouselImages: item.carouselImages || [],
-                  lessons: Array.isArray(item.lessons) ? item.lessons.join("\n") : (item.lessons || ""),
-                  whatYouWillLearn: Array.isArray(item.whatYouWillLearn) ? item.whatYouWillLearn.join("\n") : (item.whatYouWillLearn || ""),
-                  whatYouWillGet: Array.isArray(item.whatYouWillGet) ? item.whatYouWillGet.join("\n") : (item.whatYouWillGet || ""),
-                  suitableFor: Array.isArray(item.suitableFor) ? item.suitableFor.join("\n") : (item.suitableFor || ""),
-                  requirements: Array.isArray(item.requirements) ? item.requirements.join("\n") : (item.requirements || ""),
-                });
-                window.scrollTo({top:0,behavior:"smooth"});
-              }} color="rgba(245,166,35,.12)" textColor={G} style={{padding:"8px 14px"}}>✏️</Btn>
-              <Btn onClick={()=>del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{padding:"8px 14px"}}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// PRODUCTS MANAGER
-// ══════════════════════════════════════════════════════
-function ProductsManager() {
-  const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ 
-    name: "", description: "", price: "", oldPrice: "", imageUrl: "", badge: "", url: "", category: "Electronics",
-    monetizationType: "affiliate", affiliateLink: "", whatsappLink: "", sellerName: "", sellerNotes: "", featured: false
-  });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [confirm, setConfirm] = useState(null);
-
-  const db = getFirebaseDb();
-  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "products"), limit(1000));
-    const unsub = onSnapshot(q, (snap) => {
-      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      fetched.sort((a, b) => {
-        const fieldA = a.updatedAt || a.createdAt;
-        const fieldB = b.updatedAt || b.createdAt;
-        const valA = fieldA?.toDate ? fieldA.toDate() : fieldA;
-        const valB = fieldB?.toDate ? fieldB.toDate() : fieldB;
-        const timeA = valA === null || valA === undefined ? Date.now() + 10000 : (typeof valA === 'number' ? valA : new Date(valA).getTime() || 0);
-        const timeB = valB === null || valB === undefined ? Date.now() + 10000 : (typeof valB === 'number' ? valB : new Date(valB).getTime() || 0);
-        return timeB - timeA;
-      });
-      setDocs(fetched);
-    }, (err) => {
-      console.error("Error loading products:", err);
-    });
-    return () => unsub();
-  }, [db]);
-
-  const save = async () => {
-    const name = (form.name || "").toString();
-    const price = (form.price || "").toString();
-    if (!name.trim() || !price.trim()) { toast_("Weka jina na bei kwanza", "error"); return; }
+  const doGoogle = async () => {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      setErr("⚠️ Firebase haijasanidiwa.");
+      return;
+    }
     setLoading(true);
+    setErr("");
     try {
-      const data = { ...form, createdAt: serverTimestamp() };
-
-      // Ensure no undefined or null values are sent to Firestore
-      Object.keys(data).forEach(key => {
-        if (data[key] === undefined || data[key] === null) data[key] = "";
-      });
-
-      if (data.imageUrl && data.imageUrl.length > 900000) {
-        throw new Error("Picha ni kubwa mno kwa database. Tafadhali tumia picha ndogo zaidi au weka link ya picha.");
-      }
-
-      if (editing) {
-        const updateData = { ...data };
-        delete updateData.id;
-        delete updateData.createdAt;
-        console.log("Updating product:", editing, "Fields count:", Object.keys(updateData).length);
-        await updateDoc(doc(db, "products", editing), { ...updateData, updatedAt: serverTimestamp() });
-        toast_("Imesahihishwa!");
-      }
-      else { 
-        console.log("Adding new product:", data);
-        await addDoc(collection(db, "products"), data); 
-        toast_("Bidhaa imewekwa live!"); 
-      }
-      setForm({ name: "", description: "", price: "", oldPrice: "", imageUrl: "", badge: "", url: "", category: "Electronics" });
-      setEditing(null);
+      const res = await signInWithPopup(auth, new GoogleAuthProvider());
+      await saveUser(res.user, res.user.displayName, "google");
+      onClose();
     } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "products");
-      }
-      toast_(e.message, "error");
-    }
-    setLoading(false);
-  };
-
-  const del = async (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta bidhaa hii?",
-      onConfirm: async () => {
-        try {
-          await deleteDoc(doc(db, "products", id));
-          setConfirm(null);
-          toast_("Bidhaa imefutwa");
-        } catch (e) {
-          toast_(e.message, "error");
-        }
-      },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      {confirm && <ConfirmDialog {...confirm} />}
-      <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", background: "#141823", padding: 24, marginBottom: 28 }}>
-        <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, margin: "0 0 20px" }}>
-          {editing ? "✏️ Hariri Bidhaa" : "➕ Ongeza Bidhaa Mpya"}
-        </h3>
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Jina la Bidhaa *"><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Sony WH-1000XM4" /></Field>
-            <Field label="Monetization Type">
-              <select value={form.monetizationType} onChange={e => setForm(f => ({ ...f, monetizationType: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 8, background: "#1a1d2e", border: "1px solid rgba(255,255,255,.1)", color: "white" }}>
-                <option value="affiliate">Affiliate</option>
-                <option value="manual_lead">Manual Lead</option>
-                <option value="hybrid">Hybrid</option>
-              </select>
-            </Field>
-          </div>
-          <ImageUploadField label="Real Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-          <Field label="Maelezo"><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Maelezo ya bidhaa..." style={{ minHeight: 80 }} /></Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Bei ya Sasa"><Input value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="TZS 850,000" /></Field>
-            <Field label="Bei ya Zamani"><Input value={form.oldPrice} onChange={e => setForm(f => ({ ...f, oldPrice: e.target.value }))} placeholder="TZS 950,000" /></Field>
-            <Field label="Badge (e.g. New)"><Input value={form.badge} onChange={e => setForm(f => ({ ...f, badge: e.target.value }))} placeholder="HOT" /></Field>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Affiliate URL"><Input value={form.affiliateLink} onChange={e => setForm(f => ({ ...f, affiliateLink: e.target.value }))} placeholder="https://amazon.com/..." /></Field>
-            <Field label="WhatsApp URL"><Input value={form.whatsappLink} onChange={e => setForm(f => ({ ...f, whatsappLink: e.target.value }))} placeholder="https://wa.me/..." /></Field>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Seller Name"><Input value={form.sellerName} onChange={e => setForm(f => ({ ...f, sellerName: e.target.value }))} placeholder="Jina la Muuzaji" /></Field>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-              <input type="checkbox" checked={form.featured} onChange={e => setForm(f => ({ ...f, featured: e.target.checked }))} />
-              Featured
-            </label>
-          </div>
-          <Field label="Seller Notes"><Textarea value={form.sellerNotes} onChange={e => setForm(f => ({ ...f, sellerNotes: e.target.value }))} placeholder="Maelezo ya muuzaji..." style={{ minHeight: 60 }} /></Field>
-          <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : editing ? "💾 Hifadhi" : "🚀 Weka Live"}</Btn>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gap: 12 }}>
-        {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna bidhaa bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item => (
-          <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <AdminThumb url={item.imageUrl} fallback="🏷️" />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{item.name}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.category} · {item.price}</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => { setEditing(item.id); setForm({ ...item }); window.scrollTo({ top: 0, behavior: "smooth" }); }} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
-              <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// WEBSITES MANAGER
-// ══════════════════════════════════════════════════════
-function WebsitesManager() {
-  const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ name: "", url: "", description: "", iconUrl: "", imageUrl: "", bg: "linear-gradient(135deg,#667eea,#764ba2)", meta: "Free Tool", tags: "" });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [confirm, setConfirm] = useState(null);
-
-  const db = getFirebaseDb();
-  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "websites"), limit(1000));
-    const unsub = onSnapshot(q, (snap) => {
-      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      fetched.sort((a, b) => {
-        const fieldA = a.updatedAt || a.createdAt;
-        const fieldB = b.updatedAt || b.createdAt;
-        const valA = fieldA?.toDate ? fieldA.toDate() : fieldA;
-        const valB = fieldB?.toDate ? fieldB.toDate() : fieldB;
-        const timeA = valA === null || valA === undefined ? Date.now() + 10000 : (typeof valA === 'number' ? valA : new Date(valA).getTime() || 0);
-        const timeB = valB === null || valB === undefined ? Date.now() + 10000 : (typeof valB === 'number' ? valB : new Date(valB).getTime() || 0);
-        return timeB - timeA;
-      });
-      setDocs(fetched);
-    }, (err) => {
-      console.error("Error loading websites:", err);
-    });
-    return () => unsub();
-  }, [db]);
-
-  const save = async () => {
-    const name = (form.name || "").toString();
-    const url = (form.url || "").toString();
-    if (!name.trim() || !url.trim()) { toast_("Weka jina na URL", "error"); return; }
-    setLoading(true);
-    try {
-      const data = { ...form, tags: form.tags.split(",").map(t => t.trim()).filter(Boolean), createdAt: serverTimestamp() };
-
-      // Ensure no undefined or null values are sent to Firestore
-      Object.keys(data).forEach(key => {
-        if (data[key] === undefined || data[key] === null) data[key] = "";
-      });
-
-      if (data.imageUrl && data.imageUrl.length > 900000) {
-        throw new Error("Picha ni kubwa mno kwa database. Tafadhali tumia picha ndogo zaidi au weka link ya picha.");
-      }
-
-      if (editing) {
-        const updateData = { ...data };
-        delete updateData.id;
-        delete updateData.createdAt;
-        await updateDoc(doc(db, "websites", editing), { ...updateData, updatedAt: serverTimestamp() });
-        toast_("Imesahihishwa!");
-      }
-      else { await addDoc(collection(db, "websites"), data); toast_("Website imewekwa live!"); }
-      setForm({ name: "", url: "", description: "", iconUrl: "", imageUrl: "", bg: "linear-gradient(135deg,#667eea,#764ba2)", meta: "Free Tool", tags: "" });
-      setEditing(null);
-    } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "websites");
-      }
-      toast_(e.message, "error");
-    }
-    setLoading(false);
-  };
-
-  const del = async (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta website hii?",
-      onConfirm: async () => {
-        try {
-          await deleteDoc(doc(db, "websites", id));
-          setConfirm(null);
-          toast_("Website imefutwa");
-        } catch (e) {
-          toast_(e.message, "error");
-        }
-      },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      {confirm && <ConfirmDialog {...confirm} />}
-      <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", background: "#141823", padding: 24, marginBottom: 28 }}>
-        <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, margin: "0 0 20px" }}>
-          {editing ? "✏️ Hariri Website" : "➕ Ongeza Website Mpya"}
-        </h3>
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
-            <Field label="Jina la Website *"><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Remove.bg" /></Field>
-          </div>
-          <ImageUploadField label="Website Icon URL (Optional)" value={form.iconUrl} onChange={val => setForm(f => ({ ...f, iconUrl: val }))} />
-          <ImageUploadField label="Thumbnail Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-          <Field label="URL *"><Input value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} placeholder="https://remove.bg" /></Field>
-          <Field label="Maelezo"><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Maelezo mafupi..." style={{ minHeight: 80 }} /></Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Meta Info"><Input value={form.meta} onChange={e => setForm(f => ({ ...f, meta: e.target.value }))} placeholder="Free AI Tool" /></Field>
-            <Field label="Tags (comma separated)"><Input value={form.tags} onChange={e => setForm(f => ({ ...f, tags: e.target.value }))} placeholder="AI, Design, Tools" /></Field>
-          </div>
-          <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : editing ? "💾 Hifadhi" : "🚀 Weka Live"}</Btn>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gap: 12 }}>
-        {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna websites bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item => (
-          <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <AdminThumb url={item.iconUrl || item.imageUrl} fallback="🛠️" />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{item.name}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.url}</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => { setEditing(item.id); setForm({ iconUrl: "", imageUrl: "", ...item, tags: (item.tags || []).join(", ") }); window.scrollTo({ top: 0, behavior: "smooth" }); }} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
-              <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PromptsManager() {
-  const [docs, setDocs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ 
-    category: "", 
-    title: "", 
-    prompt: "", 
-    imageUrl: "", 
-    howToUse: "", 
-    tools: [] 
-  });
-  const [toast, setToast] = useState(null);
-  const [confirm, setConfirm] = useState(null);
-  const db = getFirebaseDb();
-
-  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "prompts"), limit(1000));
-    const unsub = onSnapshot(q, (snap) => {
-      const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      fetched.sort((a, b) => {
-        const fieldA = a.updatedAt || a.createdAt;
-        const fieldB = b.updatedAt || b.createdAt;
-        const valA = fieldA?.toDate ? fieldA.toDate() : fieldA;
-        const valB = fieldB?.toDate ? fieldB.toDate() : fieldB;
-        const timeA = valA === null || valA === undefined ? Date.now() + 10000 : (typeof valA === 'number' ? valA : new Date(valA).getTime() || 0);
-        const timeB = valB === null || valB === undefined ? Date.now() + 10000 : (typeof valB === 'number' ? valB : new Date(valB).getTime() || 0);
-        return timeB - timeA;
-      });
-      setDocs(fetched);
+      let msg = e.message.replace("Firebase:", "").trim();
+      if (msg.includes("auth/popup-blocked"))
+        msg = "⚠️ Popup imezuiwa na browser. Tafadhali ruhusu popups.";
+      if (msg.includes("auth/unauthorized-domain"))
+        msg = "⚠️ Domain hii haijaruhusiwa kwenye Firebase Auth.";
+      setErr(msg);
+    } finally {
       setLoading(false);
-    }, (err) => {
-      console.error("Error loading prompts:", err);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, [db]);
-
-  const save = async () => {
-    if (!form.title || !form.prompt) return toast_("Jaza kila kitu!", "error");
+    }
+  };
+  const doEmail = async () => {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      setErr("⚠️ Firebase haijasanidiwa.");
+      return;
+    }
+    if (!email || !pw) {
+      setErr("Jaza email na password.");
+      return;
+    }
     setLoading(true);
+    setErr("");
+    const normalizedEmail = normalizeEmail(email);
     try {
-      const payload = {
-        ...form,
-        tools: form.tools.filter(t => t.toolUrl) // Filter out empty tools
-      };
-
-      // Ensure no undefined or null values are sent to Firestore
-      Object.keys(payload).forEach(key => {
-        if (payload[key] === undefined || payload[key] === null) payload[key] = "";
-      });
-
-      if (payload.imageUrl && payload.imageUrl.length > 900000) {
-        throw new Error("Picha ni kubwa mno kwa database. Tafadhali tumia picha ndogo zaidi au weka link ya picha.");
-      }
-
-      if (editing) {
-        const updateData = { ...payload };
-        delete updateData.id;
-        delete updateData.createdAt;
-        await updateDoc(doc(db, "prompts", editing), { ...updateData, updatedAt: serverTimestamp() });
-        toast_("Prompt imebadilishwa");
+      if (mode === "login") {
+        console.log("Attempting login for:", normalizedEmail);
+        const res = await signInWithEmailAndPassword(auth, normalizedEmail, pw);
+        console.log("Login successful:", res.user.uid);
+        await saveUser(res.user, res.user.displayName || name, "email");
       } else {
-        await addDoc(collection(db, "prompts"), { ...payload, createdAt: serverTimestamp() });
-        toast_("Prompt mpya imeongezwa");
+        if (pw !== pw2) {
+          setErr("Passwords hazifanani.");
+          setLoading(false);
+          return;
+        }
+        if (pw.length < 6) {
+          setErr("Password lazima iwe herufi 6+.");
+          setLoading(false);
+          return;
+        }
+        console.log("Attempting registration for:", normalizedEmail);
+        const res = await createUserWithEmailAndPassword(
+          auth,
+          normalizedEmail,
+          pw,
+        );
+        console.log("Registration successful:", res.user.uid);
+        await saveUser(res.user, name, "email");
       }
-      setForm({ category: "", title: "", prompt: "", imageUrl: "", howToUse: "", tools: [] });
-      setEditing(null);
+      onClose();
     } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "prompts");
-      }
-      toast_(e.message, "error");
+      console.error("Auth error:", e);
+      let msg = e.message.replace("Firebase:", "").trim();
+      if (msg.includes("auth/user-not-found"))
+        msg = "⚠️ Akaunti hii haipo. Tafadhali jisajili.";
+      if (msg.includes("auth/wrong-password")) msg = "⚠️ Password si sahihi.";
+      if (msg.includes("auth/invalid-credential"))
+        msg =
+          "⚠️ Email au Password si sahihi. Kama huna account, tafadhali jisajili (Register) kwanza.";
+      if (msg.includes("auth/email-already-in-use"))
+        msg = "⚠️ Email hii tayari inatumika.";
+      if (msg.includes("auth/invalid-email")) msg = "⚠️ Email si sahihi.";
+      if (msg.includes("auth/operation-not-allowed"))
+        msg =
+          "⚠️ Email/Password login haijaruhusiwa kwenye Firebase Console. Tafadhali wasiliana na Admin.";
+      setErr(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const doForgot = async () => {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      setErr("⚠️ Firebase haijasanidiwa.");
+      return;
+    }
+    if (!email) {
+      setErr("Weka email yako kwanza.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setErr("✅ Reset link imetumwa!");
+    } catch (e) {
+      setErr(e.message.replace("Firebase:", "").trim());
     } finally {
       setLoading(false);
     }
   };
 
-  const addTool = () => {
-    if (form.tools.length >= 5) return toast_("Mwisho ni tools 5 tu!", "error");
-    setForm(f => ({ ...f, tools: [...f.tools, { iconUrl: "", toolUrl: "" }] }));
-  };
-
-  const updateTool = (index, field, value) => {
-    const newTools = [...form.tools];
-    newTools[index] = { ...newTools[index], [field]: value };
-    setForm(f => ({ ...f, tools: newTools }));
-  };
-
-  const removeTool = (index) => {
-    setForm(f => ({ ...f, tools: f.tools.filter((_, i) => i !== index) }));
-  };
-
-  const del = (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta prompt hii?",
-      onConfirm: async () => {
-        try {
-          await deleteDoc(doc(db, "prompts", id));
-          setConfirm(null);
-          toast_("Prompt imefutwa");
-        } catch (e) {
-          toast_(e.message, "error");
-        }
-      },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      {confirm && <ConfirmDialog {...confirm} />}
-      <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", background: "#141823", padding: 24, marginBottom: 28 }}>
-        <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, margin: "0 0 20px" }}>
-          {editing ? "✏️ Hariri Prompt" : "➕ Ongeza Prompt Mpya"}
-        </h3>
-        <div style={{ display: "grid", gap: 16 }}>
-          <Field label="Title *"><Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Business Plan Generator" /></Field>
-          <ImageUploadField label="Real Image URL (Optional)" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-          <Field label="Category"><Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="Biashara" /></Field>
-          <Field label="Prompt *"><Textarea value={form.prompt} onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))} placeholder="Andika prompt yako hapa..." style={{ minHeight: 120 }} /></Field>
-          
-          <Field label="How to Use (Step by Step)"><Textarea value={form.howToUse} onChange={e => setForm(f => ({ ...f, howToUse: e.target.value }))} placeholder="1. Copy prompt\n2. Open ChatGPT\n3. Paste and run..." style={{ minHeight: 80 }} /></Field>
-
-          <div style={{ marginTop: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,.6)", textTransform: "uppercase", letterSpacing: 1 }}>Tools to Use (Max 5)</div>
-              <Btn onClick={addTool} style={{ padding: "4px 12px", fontSize: 12 }} color="rgba(255,255,255,.05)">+ Ongeza Tool</Btn>
-            </div>
-            <div style={{ display: "grid", gap: 10 }}>
-              {form.tools.map((tool, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 40px", gap: 10, alignItems: "end" }}>
-                  <Field label={`Tool ${i+1} Icon URL`}><Input value={tool.iconUrl} onChange={e => updateTool(i, "iconUrl", e.target.value)} placeholder="https://... (ChatGPT icon)" /></Field>
-                  <Field label={`Tool ${i+1} Website URL`}><Input value={tool.toolUrl} onChange={e => updateTool(i, "toolUrl", e.target.value)} placeholder="https://chat.openai.com" /></Field>
-                  <Btn onClick={() => removeTool(i)} color="rgba(239,68,68,.1)" textColor="#fca5a5" style={{ padding: 10, marginBottom: 4 }}>✕</Btn>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <Btn onClick={save} disabled={loading}>{loading ? "Inahifadhi..." : editing ? "💾 Hifadhi" : "🚀 Weka Live"}</Btn>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gap: 12 }}>
-        {docs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna prompts bado. Ongeza ya kwanza! 👆</div>}
-        {docs.map(item => (
-          <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <AdminThumb url={item.imageUrl} fallback="🤖" />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{item.title}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.category} • {item.tools?.length || 0} Tools</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => { setEditing(item.id); setForm({ ...item, tools: item.tools || [] }); window.scrollTo({ top: 0, behavior: "smooth" }); }} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
-              <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+  const inp = (props) => (
+    <input
+      {...props}
+      style={{
+        height: 50,
+        borderRadius: 14,
+        border: "1px solid rgba(255,255,255,.1)",
+        background: "rgba(255,255,255,.05)",
+        color: "#fff",
+        padding: "0 16px",
+        outline: "none",
+        fontFamily: "inherit",
+        fontSize: 14,
+        width: "100%",
+        ...(props.style || {}),
+      }}
+      onFocus={(e) => (e.target.style.borderColor = G)}
+      onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,.1)")}
+    />
   );
-}
-
-// ══════════════════════════════════════════════════════
-// SITE CONTENT MANAGER (About, Creator, Contact, Stats, FAQ)
-// ══════════════════════════════════════════════════════
-function SiteContentManager() {
-  const [subTab, setSubTab] = useState("about_us");
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState(null);
-  const db = getFirebaseDb();
-  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  const [hero, setHero] = useState({ title1: "", title2: "", topSubtitle: "", subtitle: "", quote: "", typedStrings: [] });
-  const [aboutUs, setAboutUs] = useState({ title: "", shortDesc: "", fullDesc: "", mission: "", vision: "", btnText: "", btnLink: "" });
-  const [aboutCreator, setAboutCreator] = useState({ fullName: "", title: "", shortBio: "", fullBio: "", origin: "", location: "", education: "", career: "", hobbies: "", contactText: "", contactLink: "", imageUrl: "", imageAlt: "" });
-  const [contactInfo, setContactInfo] = useState({ whatsapp: "", email: "", supportMsg: "", officeText: "", socialLinks: { facebook: "", twitter: "", instagram: "", youtube: "", linkedin: "", tiktok: "" } });
-  const [stats, setStats] = useState({ websitesBuilt: "", activeProjects: "", launchDate: "", achievements: "" });
-
-  useEffect(() => {
-    if (!db) return;
-    const docs = ["hero", "about_us", "about_creator", "contact_info", "stats"];
-    const unsubs = docs.map(id => 
-      onSnapshot(doc(db, "site_settings", id), (snap) => {
-        if (snap.exists()) {
-          const data = snap.data().data;
-          if (id === "hero") setHero(prev => ({ ...prev, ...data }));
-          if (id === "about_us") setAboutUs(prev => ({ ...prev, ...data }));
-          if (id === "about_creator") setAboutCreator(prev => ({ ...prev, ...data }));
-          if (id === "contact_info") setContactInfo(prev => ({ ...prev, ...data }));
-          if (id === "stats") setStats(prev => ({ ...prev, ...data }));
-        }
-      })
-    );
-    return () => unsubs.forEach(u => u());
-  }, [db]);
-
-  const saveSettings = async (id, data) => {
-    setLoading(true);
-    try {
-      await setDoc(doc(db, "site_settings", id), { data, updatedAt: serverTimestamp() });
-      toast_("Imesahihishwa kikamilifu!");
-    } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, OperationType.WRITE, `site_settings/${id}`);
-      }
-      toast_(e.message, "error");
-    }
-    setLoading(false);
-  };
-
-  const SUB_TABS = [
-    { id: "hero", label: "Hero Section", icon: "⚡" },
-    { id: "about_us", label: "About Us", icon: "🏢" },
-    { id: "about_creator", label: "Creator", icon: "👨‍💻" },
-    { id: "contact_info", label: "Contact", icon: "📞" },
-    { id: "stats", label: "Stats", icon: "📈" },
-    { id: "faq", label: "FAQ", icon: "❓" },
-  ];
 
   return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      <div style={{ display: "flex", gap: 8, marginBottom: 24, overflowX: "auto", paddingBottom: 8 }}>
-        {SUB_TABS.map(t => (
-          <button key={t.id} onClick={() => setSubTab(t.id)}
-            style={{ border: "none", borderRadius: 12, padding: "10px 18px", cursor: "pointer", fontWeight: 800, fontSize: 13, whiteSpace: "nowrap",
-              background: subTab === t.id ? `linear-gradient(135deg,${G},${G2})` : "rgba(255,255,255,.06)", color: subTab === t.id ? "#111" : "rgba(255,255,255,.6)",
-              display: "flex", alignItems: "center", gap: 8 }}>
-            <span>{t.icon}</span> {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,.08)", background: "#141823", padding: 24 }}>
-        {subTab === "hero" && (
-          <div style={{ display: "grid", gap: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 18 }}>⚡ Hero Section Settings</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Title Part 1 (White)"><Input value={hero.title1} onChange={e => setHero({ ...hero, title1: e.target.value })} placeholder="SwahiliTech" /></Field>
-              <Field label="Title Part 2 (Gradient)"><Input value={hero.title2} onChange={e => setHero({ ...hero, title2: e.target.value })} placeholder="Elite Academy" /></Field>
-            </div>
-            <Field label="Top Subtitle"><Input value={hero.topSubtitle} onChange={e => setHero({ ...hero, topSubtitle: e.target.value })} placeholder="Teknolojia kwa Kiswahili 🇹🇿" /></Field>
-            <Field label="Main Description"><Textarea value={hero.subtitle} onChange={e => setHero({ ...hero, subtitle: e.target.value })} placeholder="STEA inaleta tech tips..." style={{ minHeight: 80 }} /></Field>
-            <Field label="Yearly Quote"><Input value={hero.quote} onChange={e => setHero({ ...hero, quote: e.target.value })} placeholder="“Mwaka 2026 ni mwaka wako...”" /></Field>
-            
-            <div style={{ display: "grid", gap: 8 }}>
-              <label style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,.5)" }}>Typed Strings (Animated Text)</label>
-              {hero.typedStrings.map((str, idx) => (
-                <div key={idx} style={{ display: "flex", gap: 8 }}>
-                  <Input value={str} onChange={e => {
-                    const newStrings = [...hero.typedStrings];
-                    newStrings[idx] = e.target.value;
-                    setHero({ ...hero, typedStrings: newStrings });
-                  }} />
-                  <button onClick={() => setHero({ ...hero, typedStrings: hero.typedStrings.filter((_, i) => i !== idx) })}
-                    style={{ background: "rgba(255,0,0,.1)", border: "none", borderRadius: 8, padding: 8, cursor: "pointer", color: "#ff4444" }}>
-                    🗑️
-                  </button>
-                </div>
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 600,
+        background: "rgba(4,5,9,.84)",
+        backdropFilter: "blur(18px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px",
+      }}
+    >
+      <div
+        style={{
+          width: "min(900px,100%)",
+          borderRadius: 28,
+          border: "1px solid rgba(255,255,255,.12)",
+          background: "rgba(12,14,22,.98)",
+          boxShadow: "0 32px 80px rgba(0,0,0,.55)",
+          overflow: "hidden",
+          position: "relative",
+          minHeight: 520,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            right: 16,
+            top: 16,
+            zIndex: 20,
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,.1)",
+            background: "rgba(255,255,255,.06)",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: 18,
+          }}
+        >
+          ✕
+        </button>
+        <div
+          style={{
+            padding: "36px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            position: "relative",
+            zIndex: 3,
+          }}
+        >
+          {mode !== "forgot" && (
+            <div
+              style={{
+                display: "inline-flex",
+                gap: 6,
+                padding: 5,
+                borderRadius: 999,
+                background: "rgba(255,255,255,.04)",
+                border: "1px solid rgba(255,255,255,.08)",
+                marginBottom: 24,
+                alignSelf: "flex-start",
+              }}
+            >
+              {["login", "register"].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => switchTo(m)}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "9px 18px",
+                    cursor: "pointer",
+                    fontWeight: 800,
+                    fontSize: 13,
+                    transition: "all .22s",
+                    background:
+                      mode === m
+                        ? `linear-gradient(135deg,${G},${G2})`
+                        : "transparent",
+                    color: mode === m ? "#111" : "rgba(255,255,255,.6)",
+                  }}
+                >
+                  {m === "login" ? "Login" : "Register"}
+                </button>
               ))}
-              <button onClick={() => setHero({ ...hero, typedStrings: [...hero.typedStrings, ""] })}
-                style={{ background: "rgba(255,255,255,.05)", border: "1px dashed rgba(255,255,255,.2)", borderRadius: 8, padding: 8, cursor: "pointer", color: G }}>
-                + Add String
+            </div>
+          )}
+          <div style={{ display: "grid", gap: 11 }}>
+            <h2
+              style={{
+                fontFamily: "'Bricolage Grotesque',sans-serif",
+                fontSize: 34,
+                letterSpacing: "-.05em",
+                margin: 0,
+              }}
+            >
+              {mode === "login"
+                ? "Ingia"
+                : mode === "register"
+                  ? "Jisajili"
+                  : "Forgot Password"}
+            </h2>
+            <p
+              style={{
+                color: "rgba(255,255,255,.5)",
+                lineHeight: 1.8,
+                margin: 0,
+                fontSize: 14,
+              }}
+            >
+              {mode === "login"
+                ? "Karibu tena kwenye STEA."
+                : mode === "register"
+                  ? "Anza safari yako ya tech."
+                  : "Tutakutumia reset link."}
+            </p>
+            {mode !== "forgot" && (
+              <button
+                onClick={doGoogle}
+                disabled={loading}
+                style={{
+                  height: 50,
+                  borderRadius: 14,
+                  border: "1px solid rgba(255,255,255,.1)",
+                  background: "rgba(255,255,255,.05)",
+                  color: "#fff",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  fontSize: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                }}
+              >
+                <span style={{ fontSize: 20 }}>🔐</span> Endelea kwa Google
               </button>
-            </div>
-
-            <Btn onClick={() => saveSettings("hero", hero)} disabled={loading}>{loading ? "Inahifadhi..." : "💾 Hifadhi Mabadiliko"}</Btn>
-          </div>
-        )}
-
-        {subTab === "about_us" && (
-          <div style={{ display: "grid", gap: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 18 }}>🏢 About STEA / About Us</h3>
-            <Field label="Section Title"><Input value={aboutUs.title} onChange={e => setAboutUs({ ...aboutUs, title: e.target.value })} placeholder="Kuhusu STEA" /></Field>
-            <Field label="Short Description"><Textarea value={aboutUs.shortDesc} onChange={e => setAboutUs({ ...aboutUs, shortDesc: e.target.value })} placeholder="Short intro..." style={{ minHeight: 60 }} /></Field>
-            <Field label="Full Description"><Textarea value={aboutUs.fullDesc} onChange={e => setAboutUs({ ...aboutUs, fullDesc: e.target.value })} placeholder="Detailed about us..." style={{ minHeight: 120 }} /></Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Mission"><Textarea value={aboutUs.mission} onChange={e => setAboutUs({ ...aboutUs, mission: e.target.value })} placeholder="Our mission..." style={{ minHeight: 80 }} /></Field>
-              <Field label="Vision"><Textarea value={aboutUs.vision} onChange={e => setAboutUs({ ...aboutUs, vision: e.target.value })} placeholder="Our vision..." style={{ minHeight: 80 }} /></Field>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Optional Button Text"><Input value={aboutUs.btnText} onChange={e => setAboutUs({ ...aboutUs, btnText: e.target.value })} placeholder="Learn More" /></Field>
-              <Field label="Optional Button Link"><Input value={aboutUs.btnLink} onChange={e => setAboutUs({ ...aboutUs, btnLink: e.target.value })} placeholder="/about" /></Field>
-            </div>
-            <Btn onClick={() => saveSettings("about_us", aboutUs)} disabled={loading}>{loading ? "Inahifadhi..." : "💾 Hifadhi Mabadiliko"}</Btn>
-          </div>
-        )}
-
-        {subTab === "about_creator" && (
-          <div style={{ display: "grid", gap: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 18 }}>👨‍💻 About the Creator</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Creator Full Name"><Input value={aboutCreator.fullName} onChange={e => setAboutCreator({ ...aboutCreator, fullName: e.target.value })} placeholder="Isaya Hans Masika" /></Field>
-              <Field label="Title / Role"><Input value={aboutCreator.title} onChange={e => setAboutCreator({ ...aboutCreator, title: e.target.value })} placeholder="Founder & Developer" /></Field>
-            </div>
-            <ImageUploadField label="Creator Image (Will be used in profile card)" value={aboutCreator.imageUrl} onChange={val => setAboutCreator({ ...aboutCreator, imageUrl: val })} />
-            <Field label="Image Alt Text"><Input value={aboutCreator.imageAlt} onChange={e => setAboutCreator({ ...aboutCreator, imageAlt: e.target.value })} placeholder="Isaya Hans Masika Profile" /></Field>
-            <Field label="Short Bio"><Textarea value={aboutCreator.shortBio} onChange={e => setAboutCreator({ ...aboutCreator, shortBio: e.target.value })} placeholder="One sentence bio..." style={{ minHeight: 60 }} /></Field>
-            <Field label="Full Bio"><Textarea value={aboutCreator.fullBio} onChange={e => setAboutCreator({ ...aboutCreator, fullBio: e.target.value })} placeholder="Detailed background..." style={{ minHeight: 120 }} /></Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Country / Origin"><Input value={aboutCreator.origin} onChange={e => setAboutCreator({ ...aboutCreator, origin: e.target.value })} placeholder="Tanzania" /></Field>
-              <Field label="Current Location"><Input value={aboutCreator.location} onChange={e => setAboutCreator({ ...aboutCreator, location: e.target.value })} placeholder="China" /></Field>
-            </div>
-            <Field label="Education Background"><Textarea value={aboutCreator.education} onChange={e => setAboutCreator({ ...aboutCreator, education: e.target.value })} placeholder="Degrees, schools..." style={{ minHeight: 60 }} /></Field>
-            <Field label="Career / Profession"><Textarea value={aboutCreator.career} onChange={e => setAboutCreator({ ...aboutCreator, career: e.target.value })} placeholder="Work experience..." style={{ minHeight: 60 }} /></Field>
-            <Field label="Hobbies / Interests"><Input value={aboutCreator.hobbies} onChange={e => setAboutCreator({ ...aboutCreator, hobbies: e.target.value })} placeholder="Tech, AI, Music..." /></Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Optional Contact Text"><Input value={aboutCreator.contactText} onChange={e => setAboutCreator({ ...aboutCreator, contactText: e.target.value })} placeholder="Contact Creator" /></Field>
-              <Field label="WhatsApp / Contact Link"><Input value={aboutCreator.contactLink} onChange={e => setAboutCreator({ ...aboutCreator, contactLink: e.target.value })} placeholder="https://wa.me/..." /></Field>
-            </div>
-            <Btn onClick={() => saveSettings("about_creator", aboutCreator)} disabled={loading}>{loading ? "Inahifadhi..." : "💾 Hifadhi Mabadiliko"}</Btn>
-          </div>
-        )}
-
-        {subTab === "contact_info" && (
-          <div style={{ display: "grid", gap: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 18 }}>📞 Contact & Support Info</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="WhatsApp Number"><Input value={contactInfo.whatsapp} onChange={e => setContactInfo({ ...contactInfo, whatsapp: e.target.value })} placeholder="255..." /></Field>
-              <Field label="Email Address"><Input value={contactInfo.email} onChange={e => setContactInfo({ ...contactInfo, email: e.target.value })} placeholder="support@stea.africa" /></Field>
-            </div>
-            <Field label="Support Message"><Textarea value={contactInfo.supportMsg} onChange={e => setContactInfo({ ...contactInfo, supportMsg: e.target.value })} placeholder="How can we help you?" style={{ minHeight: 60 }} /></Field>
-            <Field label="Office / Location Text"><Input value={contactInfo.officeText} onChange={e => setContactInfo({ ...contactInfo, officeText: e.target.value })} placeholder="Mbezi Beach, Dar es Salaam" /></Field>
-            
-            <div style={{ borderTop: "1px solid rgba(255,255,255,.05)", paddingTop: 16 }}>
-              <h4 style={{ margin: "0 0 12px", fontSize: 14, color: G }}>Social Links</h4>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                {Object.keys(contactInfo.socialLinks).map(key => (
-                  <Field key={key} label={key.charAt(0).toUpperCase() + key.slice(1)}>
-                    <Input value={contactInfo.socialLinks[key]} onChange={e => setContactInfo({ ...contactInfo, socialLinks: { ...contactInfo.socialLinks, [key]: e.target.value } })} placeholder={`https://${key}.com/...`} />
-                  </Field>
-                ))}
+            )}
+            {mode === "register" &&
+              inp({
+                value: name,
+                onChange: (e) => setName(e.target.value),
+                placeholder: "Jina kamili",
+              })}
+            {inp({
+              value: email,
+              onChange: (e) => setEmail(e.target.value),
+              placeholder: "Email address",
+              type: "email",
+            })}
+            {mode !== "forgot" &&
+              inp({
+                value: pw,
+                onChange: (e) => setPw(e.target.value),
+                placeholder: "Password",
+                type: "password",
+              })}
+            {mode === "register" &&
+              inp({
+                value: pw2,
+                onChange: (e) => setPw2(e.target.value),
+                placeholder: "Confirm password",
+                type: "password",
+              })}
+            {err && (
+              <div
+                style={{
+                  fontSize: 13,
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  background: err.startsWith("✅")
+                    ? "rgba(0,196,140,.1)"
+                    : "rgba(239,68,68,.1)",
+                  color: err.startsWith("✅") ? "#67f0c1" : "#fca5a5",
+                  border: `1px solid ${err.startsWith("✅") ? "rgba(0,196,140,.2)" : "rgba(239,68,68,.2)"}`,
+                }}
+              >
+                {err}
               </div>
+            )}
+            <button
+              onClick={mode === "forgot" ? doForgot : doEmail}
+              disabled={loading}
+              style={{
+                height: 50,
+                borderRadius: 14,
+                border: "none",
+                background: `linear-gradient(135deg,${G},${G2})`,
+                color: "#111",
+                fontWeight: 900,
+                cursor: "pointer",
+                fontSize: 15,
+                opacity: loading ? 0.7 : 1,
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.transform = "translateY(-2px)")
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.transform = "")}
+            >
+              {loading
+                ? "Subiri..."
+                : mode === "login"
+                  ? "Ingia Sasa →"
+                  : mode === "register"
+                    ? "Fungua Account →"
+                    : "Tuma Reset Link"}
+            </button>
+            <div style={{ fontSize: 13 }}>
+              {mode === "login" && (
+                <button
+                  onClick={() => switchTo("forgot")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: G,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    padding: 0,
+                  }}
+                >
+                  Forgot password?
+                </button>
+              )}
+              {mode === "forgot" && (
+                <button
+                  onClick={() => switchTo("login")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: G,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    padding: 0,
+                  }}
+                >
+                  ← Rudi login
+                </button>
+              )}
             </div>
-            <Btn onClick={() => saveSettings("contact_info", contactInfo)} disabled={loading}>{loading ? "Inahifadhi..." : "💾 Hifadhi Mabadiliko"}</Btn>
-          </div>
-        )}
-
-        {subTab === "stats" && (
-          <div style={{ display: "grid", gap: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 18 }}>📈 Founder & Website Stats</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Websites Built"><Input value={stats.websitesBuilt} onChange={e => setStats({ ...stats, websitesBuilt: e.target.value })} placeholder="50+" /></Field>
-              <Field label="Active Projects"><Input value={stats.activeProjects} onChange={e => setStats({ ...stats, activeProjects: e.target.value })} placeholder="12" /></Field>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <Field label="Launch Date"><Input value={stats.launchDate} onChange={e => setStats({ ...stats, launchDate: e.target.value })} placeholder="Jan 2024" /></Field>
-              <Field label="Short Achievements Text"><Input value={stats.achievements} onChange={e => setStats({ ...stats, achievements: e.target.value })} placeholder="Award winning academy" /></Field>
-            </div>
-            <Btn onClick={() => saveSettings("stats", stats)} disabled={loading}>{loading ? "Inahifadhi..." : "💾 Hifadhi Mabadiliko"}</Btn>
-          </div>
-        )}
-
-        {subTab === "faq" && <FAQManager />}
-      </div>
-    </div>
-  );
-}
-
-function FAQManager() {
-  const [faqs, setFaqs] = useState([]);
-  const [form, setForm] = useState({ question: "", answer: "", category: "General", order: 0, isActive: true });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [confirm, setConfirm] = useState(null);
-  const db = getFirebaseDb();
-  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "faqs"), orderBy("order", "asc"));
-    const unsub = onSnapshot(q, (snap) => {
-      setFaqs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return () => unsub();
-  }, [db]);
-
-  const save = async () => {
-    if (!form.question || !form.answer) return toast_("Jaza swali na jibu!", "error");
-    setLoading(true);
-    try {
-      const data = { ...form, order: Number(form.order) };
-      if (editing) {
-        await updateDoc(doc(db, "faqs", editing), { ...data, updatedAt: serverTimestamp() });
-        toast_("FAQ imebadilishwa");
-      } else {
-        await addDoc(collection(db, "faqs"), { ...data, createdAt: serverTimestamp() });
-        toast_("FAQ mpya imeongezwa");
-      }
-      setForm({ question: "", answer: "", category: "General", order: faqs.length + 1, isActive: true });
-      setEditing(null);
-    } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, editing ? OperationType.UPDATE : OperationType.CREATE, "faqs");
-      }
-      toast_(e.message, "error");
-    }
-    setLoading(false);
-  };
-
-  const del = (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta FAQ hii?",
-      onConfirm: async () => {
-        await deleteDoc(doc(db, "faqs", id));
-        setConfirm(null);
-        toast_("FAQ imefutwa");
-      },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 24 }}>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      {confirm && <ConfirmDialog {...confirm} />}
-      
-      <div style={{ background: "rgba(255,255,255,.02)", padding: 20, borderRadius: 16, border: "1px solid rgba(255,255,255,.05)" }}>
-        <h4 style={{ margin: "0 0 16px", fontSize: 16 }}>{editing ? "✏️ Edit FAQ" : "➕ Add New FAQ"}</h4>
-        <div style={{ display: "grid", gap: 16 }}>
-          <Field label="Question"><Input value={form.question} onChange={e => setForm({ ...form, question: e.target.value })} placeholder="Nitaanzaje?" /></Field>
-          <Field label="Answer"><Textarea value={form.answer} onChange={e => setForm({ ...form, answer: e.target.value })} placeholder="Maelezo..." style={{ minHeight: 80 }} /></Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Category"><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="General" /></Field>
-            <Field label="Order"><Input type="number" value={form.order} onChange={e => setForm({ ...form, order: e.target.value })} /></Field>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: 24 }}>
-              <input type="checkbox" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} />
-              Active
-            </label>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Btn onClick={save} disabled={loading}>{loading ? "Saving..." : editing ? "Update FAQ" : "Add FAQ"}</Btn>
-            {editing && <Btn onClick={() => { setEditing(null); setForm({ question: "", answer: "", category: "General", order: faqs.length, isActive: true }); }} color="rgba(255,255,255,.05)" textColor="#fff">Cancel</Btn>}
           </div>
         </div>
-      </div>
-
-      <div style={{ display: "grid", gap: 10 }}>
-        {faqs.map(f => (
-          <div key={f.id} style={{ borderRadius: 12, border: "1px solid rgba(255,255,255,.05)", background: "rgba(255,255,255,.02)", padding: 16, display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: f.isActive ? `${G}20` : "rgba(239,68,68,.1)", color: f.isActive ? G : "#fca5a5", display: "grid", placeItems: "center", fontWeight: 800 }}>{f.order}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{f.question}</div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,.4)" }}>{f.category} • {f.isActive ? "Active" : "Inactive"}</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { setEditing(f.id); setForm(f); }} style={{ background: "transparent", border: "none", color: G, cursor: "pointer" }}>✏️</button>
-              <button onClick={() => del(f.id)} style={{ background: "transparent", border: "none", color: "#fca5a5", cursor: "pointer" }}>🗑️</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// USERS MANAGER
-// ══════════════════════════════════════════════════════
-function UsersManager() {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [toast, setToast] = useState(null);
-  const [confirm, setConfirm] = useState(null);
-  const db = getFirebaseDb();
-
-  const toast_ = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  useEffect(() => {
-    if (!db) return;
-    const unsub = onSnapshot(collection(db, "users"), (snap) => {
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    }, (err) => {
-      console.error("Error loading users:", err);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, [db]);
-
-  const setRole = async (uid, role) => {
-    try {
-      await updateDoc(doc(db, "users", uid), { role });
-      toast_(`Role imebadilishwa kuwa ${role}`);
-    } catch (e) {
-      console.error(e);
-      if (e.message.includes("insufficient permissions")) {
-        handleFirestoreError(e, OperationType.UPDATE, `users/${uid}`);
-      }
-      toast_(e.message, "error");
-    }
-  };
-
-  const delUser = async (uid) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta user huyu? Data zake zote zitafutwa Firestore (lakini account yake ya Auth itabaki mpaka uifute manual).",
-      onConfirm: async () => {
-        try {
-          await deleteDoc(doc(db, "users", uid));
-          setConfirm(null);
-          toast_("User amefutwa Firestore");
-        } catch (e) {
-          toast_(e.message, "error");
-        }
-      },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  const filtered = users.filter(u =>
-    (u.name || "").toLowerCase().includes(search.toLowerCase()) ||
-    (u.email || "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      {confirm && <ConfirmDialog {...confirm} />}
-
-      <div style={{ marginBottom: 24, display: "flex", gap: 12, alignItems: "center" }}>
-        <div style={{ flex: 1, position: "relative" }}>
-          <Input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Tafuta user kwa jina au email..."
-            style={{ paddingLeft: 44 }}
+        <div
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            background: "linear-gradient(135deg,#0d1019,#090b12)",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              right: "-5%",
+              top: "-8%",
+              height: "130%",
+              width: "115%",
+              background: `linear-gradient(135deg,${G},${G2})`,
+              transformOrigin: "bottom right",
+              transition: "transform 1.4s cubic-bezier(.4,0,.2,1)",
+              transform: tog
+                ? "rotate(0deg) skewY(0deg)"
+                : "rotate(10deg) skewY(38deg)",
+            }}
           />
-          <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", opacity: .4 }}>🔍</span>
-        </div>
-        <div style={{ padding: "0 16px", height: 46, borderRadius: 12, background: "rgba(255,255,255,.05)", display: "grid", placeItems: "center", fontSize: 13, fontWeight: 700, border: "1px solid rgba(255,255,255,.1)" }}>
-          {users.length} Users
-        </div>
-      </div>
-
-      {loading ? <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.4)" }}>Inapakia users...</div> :
-        filtered.length === 0 ? <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,.35)" }}>Hakuna users waliopatikana.</div> :
-          <div style={{ display: "grid", gap: 10 }}>
-            {filtered.map(u => (
-              <div key={u.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: u.role === "admin" ? `linear-gradient(135deg,${G},${G2})` : "rgba(255,255,255,.05)", display: "grid", placeItems: "center", color: u.role === "admin" ? "#111" : "rgba(255,255,255,.4)", fontWeight: 900, fontSize: 18, flexShrink: 0 }}>
-                  {(u.name || u.email || "U")[0].toUpperCase()}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>{u.name || "No name"}</div>
-                  <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)", wordBreak: "break-all" }}>{u.email}</div>
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,.3)", marginTop: 2 }}>via {u.provider || "email"} · {timeAgo(u.createdAt)}</div>
-                </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  {u.role === "admin" ? <span style={{ fontSize: 12, fontWeight: 800, padding: "4px 10px", borderRadius: 8, background: "rgba(245,166,35,.15)", color: G }}>⚡ Admin</span>
-                    : <Btn onClick={() => setRole(u.id, "admin")} color="rgba(245,166,35,.1)" textColor={G} style={{ padding: "6px 12px", fontSize: 12 }}>Make Admin</Btn>}
-                  {u.role === "admin" && u.email !== "isayamasika100@gmail.com" &&
-                    <Btn onClick={() => setRole(u.id, "user")} color="rgba(255,255,255,.06)" textColor="rgba(255,255,255,.6)" style={{ padding: "6px 12px", fontSize: 12 }}>Remove Admin</Btn>}
-                  {u.email !== "isayamasika100@gmail.com" &&
-                    <Btn onClick={() => delUser(u.id)} color="rgba(239,68,68,.1)" textColor="#fca5a5" style={{ padding: "10px", borderRadius: 10 }}>🗑️</Btn>
-                  }
-                </div>
-              </div>
-            ))}
-          </div>
-      }
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// SPONSORED ADS MANAGER
-// ══════════════════════════════════════════════════════
-function SponsoredAdsManager() {
-  const [docs, setDocs] = useState([]);
-  const [form, setForm] = useState({ 
-    title: "", clientName: "", imageUrl: "", shortText: "", ctaText: "", ctaLink: "", 
-    adType: "popup", targetPages: [], startDate: "", endDate: "", status: "active", 
-    impressions: 0, clicks: 0, priority: 0 
-  });
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [toast,   setToast]   = useState(null);
-  const [confirm, setConfirm] = useState(null);
-
-  const db = getFirebaseDb();
-  const toast_ = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "sponsored_ads"), limit(1000));
-    const unsub = onSnapshot(q, (snap) => {
-      setDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error("Error loading ads:", err));
-    return () => unsub();
-  }, [db]);
-
-  const save = async () => {
-    if (!form.title.trim()) { toast_("Weka title ya ad", "error"); return; }
-    setLoading(true);
-    try {
-      const data = { ...form, createdAt: serverTimestamp() };
-      if (editing) {
-        await updateDoc(doc(db, "sponsored_ads", editing), { ...data, updatedAt: serverTimestamp() });
-        toast_("Imesahihishwa!");
-      } else {
-        await addDoc(collection(db, "sponsored_ads"), data);
-        toast_("Ad imewekwa live!");
-      }
-      setForm({ title: "", clientName: "", imageUrl: "", shortText: "", ctaText: "", ctaLink: "", adType: "popup", targetPages: [], startDate: "", endDate: "", status: "active", impressions: 0, clicks: 0, priority: 0 });
-      setEditing(null);
-    } catch (e) {
-      console.error(e);
-      toast_(e.message, "error");
-    }
-    setLoading(false);
-  };
-
-  const del = async (id) => {
-    setConfirm({
-      msg: "Una uhakika unataka kufuta ad hii?",
-      onConfirm: async () => { await deleteDoc(doc(db, "sponsored_ads", id)); setConfirm(null); toast_("Imefutwa"); },
-      onCancel: () => setConfirm(null)
-    });
-  };
-
-  return (
-    <div>
-      {toast && <Toast msg={toast.msg} type={toast.type}/>}
-      {confirm && <ConfirmDialog {...confirm}/>}
-      <div style={{ borderRadius:20, border:"1px solid rgba(255,255,255,.08)", background:"#141823", padding:24, marginBottom:28 }}>
-        <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>
-          {editing ? "✏️ Hariri Ad" : "➕ Ongeza Ad Mpya"}
-        </h3>
-        <div style={{ display: "grid", gap: 16 }}>
-          <Field label="Ad Title *"><Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} /></Field>
-          <Field label="Client Name *"><Input value={form.clientName} onChange={e => setForm(f => ({ ...f, clientName: e.target.value }))} /></Field>
-          <ImageUploadField label="Banner/Popup Image" value={form.imageUrl} onChange={val => setForm(f => ({ ...f, imageUrl: val }))} />
-          <Field label="Short Text"><Input value={form.shortText} onChange={e => setForm(f => ({ ...f, shortText: e.target.value }))} /></Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="CTA Text"><Input value={form.ctaText} onChange={e => setForm(f => ({ ...f, ctaText: e.target.value }))} /></Field>
-            <Field label="CTA Link"><Input value={form.ctaLink} onChange={e => setForm(f => ({ ...f, ctaLink: e.target.value }))} /></Field>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <Field label="Ad Type">
-              <select value={form.adType} onChange={e => setForm(f => ({ ...f, adType: e.target.value }))} style={{ height:46, borderRadius:12, background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", color:"#fff", padding:"0 14px" }}>
-                <option value="popup">Popup</option>
-                <option value="banner">Banner</option>
-                <option value="inline">Inline</option>
-              </select>
-            </Field>
-            <Field label="Status">
-              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={{ height:46, borderRadius:12, background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", color:"#fff", padding:"0 14px" }}>
-                <option value="active">Active</option>
-                <option value="paused">Paused</option>
-                <option value="expired">Expired</option>
-              </select>
-            </Field>
-            <Field label="Priority"><Input type="number" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: parseInt(e.target.value) }))} /></Field>
-          </div>
-          <Btn onClick={save} disabled={loading}>{loading?"Inahifadhi...":editing?"💾 Hifadhi":"🚀 Weka Live"}</Btn>
-        </div>
-      </div>
-      <div style={{ display: "grid", gap: 12 }}>
-        {docs.map(item => (
-          <div key={item.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{item.title} ({item.clientName})</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{item.adType} • {item.status}</div>
+          <div
+            style={{
+              position: "absolute",
+              left: "22%",
+              top: "98%",
+              height: "120%",
+              width: "110%",
+              background: "rgba(12,14,22,.98)",
+              borderTop: `3px solid ${G}`,
+              transformOrigin: "bottom left",
+              transition: "transform 1.4s cubic-bezier(.4,0,.2,1) .5s",
+              transform: tog
+                ? "rotate(-10deg) skewY(-38deg)"
+                : "rotate(0deg) skewY(0deg)",
+            }}
+          />
+          <div
+            style={{
+              position: "relative",
+              zIndex: 2,
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              padding: "38px",
+              color: "#111",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Bricolage Grotesque',sans-serif",
+                fontSize: 48,
+                lineHeight: 0.9,
+                letterSpacing: "-.06em",
+                fontWeight: 800,
+                marginBottom: 16,
+              }}
+            >
+              {tog ? "KARIBU\nSTEA" : "KARIBU\nTENA"}
             </div>
-            <Btn onClick={() => { setEditing(item.id); setForm(item); }} color="rgba(245,166,35,.12)" textColor={G} style={{ padding: "8px 14px" }}>✏️</Btn>
-            <Btn onClick={() => del(item.id)} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>🗑️</Btn>
+            <p
+              style={{
+                maxWidth: 250,
+                lineHeight: 1.8,
+                fontSize: 14,
+                margin: "0 0 18px",
+              }}
+            >
+              {tog
+                ? "Anza safari yako ya tech. Platform ya kwanza ya tech kwa Watanzania."
+                : "Ingia uendelee kujifunza na kupata deals."}
+            </p>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>
+              ✉️ swahilitecheliteacademy@gmail.com
+            </div>
           </div>
-        ))}
+        </div>
+        <style>{`@media(max-width:640px){.auth-grid{grid-template-columns:1fr!important}.auth-grid > div:last-child{display:none!important}}`}</style>
       </div>
     </div>
   );
 }
 
-// ══════════════════════════════════════════════════════
-// COMMERCE MANAGER
-// ══════════════════════════════════════════════════════
-function CommerceManager() {
-  const [orders, setOrders] = useState([]);
-  const [subs, setSubs] = useState([]);
-  const db = getFirebaseDb();
-
+// ── User Chip ─────────────────────────────────────────
+function UserChip({ user, onLogout, onAdmin }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
   useEffect(() => {
-    if (!db) return;
-    const unsubOrders = onSnapshot(collection(db, "orders"), (snap) => setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubSubs = onSnapshot(collection(db, "subscriptions"), (snap) => setSubs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    return () => { unsubOrders(); unsubSubs(); };
-  }, [db]);
-
-  const approveOrder = async (id) => {
-    await updateDoc(doc(db, "orders", id), { status: "approved" });
-  };
-
+    const fn = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("click", fn);
+    return () => document.removeEventListener("click", fn);
+  }, []);
+  const ini = (user.displayName || user.email || "S")[0].toUpperCase();
   return (
-    <div>
-      <div style={{ borderRadius:20, border:"1px solid rgba(255,255,255,.08)", background:"#141823", padding:24, marginBottom:28 }}>
-        <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>Orders</h3>
-        <div style={{ display: "grid", gap: 12 }}>
-          {orders.map(o => (
-            <div key={o.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>Order: {o.dealId}</div>
-                <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>Amount: {o.amount} | Status: {o.status}</div>
-              </div>
-              {o.status === "pending" && <Btn onClick={() => approveOrder(o.id)} color={G} textColor="#111" style={{ padding: "8px 14px" }}>Approve</Btn>}
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: 14,
+          border: `2px solid ${G}`,
+          background: `linear-gradient(135deg,${G},${G2})`,
+          color: "#111",
+          fontWeight: 900,
+          fontSize: 16,
+          cursor: "pointer",
+          display: "grid",
+          placeItems: "center",
+          flexShrink: 0,
+        }}
+      >
+        {ini}
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            right: 0,
+            top: "calc(100% + 8px)",
+            width: 230,
+            borderRadius: 18,
+            border: "1px solid rgba(255,255,255,.12)",
+            background: "rgba(14,16,26,.98)",
+            boxShadow: "0 24px 60px rgba(0,0,0,.45)",
+            padding: 12,
+            zIndex: 500,
+          }}
+        >
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              background: "rgba(255,255,255,.04)",
+              marginBottom: 10,
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 3 }}>
+              {user.displayName || "STEA User"}
             </div>
-          ))}
-        </div>
-      </div>
-      <div style={{ borderRadius:20, border:"1px solid rgba(255,255,255,.08)", background:"#141823", padding:24 }}>
-        <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>Subscriptions</h3>
-        <div style={{ display: "grid", gap: 12 }}>
-          {subs.map(s => (
-            <div key={s.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>Sub: {s.dealId}</div>
-                <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>Status: {s.status} | End: {s.endDate}</div>
-              </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: "rgba(255,255,255,.4)",
+                wordBreak: "break-all",
+              }}
+            >
+              {user.email}
             </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// PAYMENT REVIEW MANAGER
-// ══════════════════════════════════════════════════════
-function PaymentReviewManager() {
-  const [payments, setPayments] = useState([]);
-  const db = getFirebaseDb();
-
-  useEffect(() => {
-    if (!db) return;
-    const q = query(collection(db, "payments"), orderBy("submittedAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => setPayments(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => console.error("Error loading payments:", err));
-    return () => unsub();
-  }, [db]);
-
-  const updateStatus = async (id, status) => {
-    await updateDoc(doc(db, "payments", id), { reviewStatus: status, reviewedAt: serverTimestamp() });
-  };
-
-  return (
-    <div>
-      <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>Payment Review</h3>
-      <div style={{ display: "grid", gap: 12 }}>
-        {payments.map(p => (
-          <div key={p.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{p.customerName} - {p.amountPaid}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>Status: {p.reviewStatus} | Ref: {p.paymentReference}</div>
-            </div>
-            {p.reviewStatus === "pending" && (
-              <>
-                <Btn onClick={() => updateStatus(p.id, "approved")} color={G} textColor="#111" style={{ padding: "8px 14px" }}>Approve</Btn>
-                <Btn onClick={() => updateStatus(p.id, "rejected")} color="rgba(239,68,68,.12)" textColor="#fca5a5" style={{ padding: "8px 14px" }}>Reject</Btn>
-              </>
+            {user.role === "admin" && (
+              <span
+                style={{
+                  display: "inline-block",
+                  marginTop: 6,
+                  fontSize: 10,
+                  fontWeight: 900,
+                  padding: "3px 9px",
+                  borderRadius: 99,
+                  background: "rgba(245,166,35,.15)",
+                  color: G,
+                  border: "1px solid rgba(245,166,35,.28)",
+                }}
+              >
+                ⚡ ADMIN
+              </span>
             )}
           </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// SUBSCRIPTION MANAGER
-// ══════════════════════════════════════════════════════
-function SubscriptionManager() {
-  const [subs, setSubs] = useState([]);
-  const db = getFirebaseDb();
-
-  useEffect(() => {
-    if (!db) return;
-    const unsub = onSnapshot(collection(db, "subscriptions"), (snap) => setSubs(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => console.error("Error loading subscriptions:", err));
-    return () => unsub();
-  }, [db]);
-
-  return (
-    <div>
-      <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>Subscriptions</h3>
-      <div style={{ display: "grid", gap: 12 }}>
-        {subs.map(s => (
-          <div key={s.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{s.customerName} - {s.status}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>Ends: {s.endDate?.toDate().toLocaleDateString()}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// DELIVERY MANAGER
-// ══════════════════════════════════════════════════════
-function DeliveryManager() {
-  const [deliveries, setDeliveries] = useState([]);
-  const db = getFirebaseDb();
-
-  useEffect(() => {
-    if (!db) return;
-    const unsub = onSnapshot(collection(db, "deliveries"), (snap) => setDeliveries(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => console.error("Error loading deliveries:", err));
-    return () => unsub();
-  }, [db]);
-
-  return (
-    <div>
-      <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>Delivery Manager</h3>
-      <div style={{ display: "grid", gap: 12 }}>
-        {deliveries.map(d => (
-          <div key={d.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Order: {d.orderId}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>Status: {d.deliveryStatus}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// MESSAGE TEMPLATE MANAGER
-// ══════════════════════════════════════════════════════
-function MessageTemplateManager() {
-  const [templates, setTemplates] = useState([]);
-  const db = getFirebaseDb();
-
-  useEffect(() => {
-    if (!db) return;
-    const unsub = onSnapshot(collection(db, "message_templates"), (snap) => setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() }))), (err) => console.error("Error loading templates:", err));
-    return () => unsub();
-  }, [db]);
-
-  return (
-    <div>
-      <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 20px" }}>Message Templates</h3>
-      <div style={{ display: "grid", gap: 12 }}>
-        {templates.map(t => (
-          <div key={t.id} style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.07)", background: "#1a1d2e", padding: "14px 18px", display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>{t.name}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,.4)" }}>{t.content.substring(0, 50)}...</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// MAIN ADMIN PANEL
-// ══════════════════════════════════════════════════════
-export default function AdminPanel({ user, onBack }) {
-  const [section, setSection] = useState("overview");
-  const [counts,  setCounts]  = useState({ tips:0, updates:0, deals:0, courses:0, users:0, products:0, websites:0, prompts:0 });
-
-  const db = getFirebaseDb();
-
-  useEffect(() => {
-    if (!db) return;
-    const cols = ["tips","updates","deals","courses","users","products","websites","prompts", "sponsored_ads", "orders", "subscriptions"];
-    const unsubs = cols.map(c => 
-      onSnapshot(collection(db, c), (snap) => {
-        setCounts(prev => ({ ...prev, [c]: snap.size }));
-      }, (err) => {
-        console.error(`Error loading count for ${c}:`, err);
-      })
-    );
-    return () => unsubs.forEach(unsub => unsub());
-  }, [db]);
-
-  const SECTIONS = [
-    { id:"overview", icon:"📊", label:"Overview" },
-    { id:"ads",      icon:"📢", label:"Sponsored Ads" },
-    { id:"commerce", icon:"💳", label:"Commerce" },
-    { id:"payments", icon:"💰", label:"Payment Review" },
-    { id:"subs",     icon:"🔄", label:"Subscriptions" },
-    { id:"delivery", icon:"📦", label:"Delivery" },
-    { id:"templates", icon:"✉️", label:"Templates" },
-    { id:"tips",     icon:"💡", label:"Tech Tips" },
-    { id:"updates",  icon:"📰", label:"Tech Updates" },
-    { id:"prompts",  icon:"🤖", label:"Prompt Lab" },
-    { id:"deals",    icon:"🏷️", label:"Deals" },
-    { id:"courses",  icon:"🎓", label:"Courses" },
-    { id:"products", icon:"🛒", label:"Duka" },
-    { id:"websites", icon:"🌐", label:"Websites" },
-    { id:"content",  icon:"📝", label:"Site Content" },
-    { id:"users",    icon:"👥", label:"Users" },
-  ];
-
-  return (
-    <div style={{ minHeight:"100vh", display:"grid", gridTemplateColumns:"240px 1fr", background:"#0a0b0f" }}>
-
-      {/* Sidebar */}
-      <div style={{ borderRight:"1px solid rgba(255,255,255,.06)", padding:"24px 16px", position:"sticky", top:0, height:"100vh", overflowY:"auto" }}>
-        <div style={{ marginBottom:28 }}>
-          <div style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, fontWeight:800, marginBottom:4 }}>⚡ Admin Panel</div>
-          <div style={{ fontSize:12, color:"rgba(255,255,255,.35)" }}>SwahiliTech Elite Academy</div>
+          {user.role === "admin" && (
+            <button
+              onClick={() => {
+                onAdmin();
+                setOpen(false);
+              }}
+              style={{
+                width: "100%",
+                marginBottom: 8,
+                padding: "10px 14px",
+                borderRadius: 12,
+                border: "none",
+                background: "rgba(245,166,35,.1)",
+                color: G,
+                fontWeight: 800,
+                cursor: "pointer",
+                textAlign: "left",
+                fontSize: 14,
+              }}
+            >
+              ⚙️ Admin Dashboard
+            </button>
+          )}
+          <button
+            onClick={() => {
+              onLogout();
+              setOpen(false);
+            }}
+            style={{
+              width: "100%",
+              padding: "10px 14px",
+              borderRadius: 12,
+              border: "none",
+              background: "rgba(239,68,68,.1)",
+              color: "#fca5a5",
+              fontWeight: 800,
+              cursor: "pointer",
+              textAlign: "left",
+              fontSize: 14,
+            }}
+          >
+            🚪 Logout
+          </button>
         </div>
+      )}
+    </div>
+  );
+}
 
-        <div style={{ display:"grid", gap:4 }}>
-          {SECTIONS.map(s=>(
-            <button key={s.id} onClick={()=>setSection(s.id)}
-              style={{ border:"none", borderRadius:12, padding:"11px 14px", textAlign:"left", cursor:"pointer", fontWeight:700, fontSize:14,
-                background:section===s.id?`linear-gradient(135deg,${G},${G2})`:"transparent",
-                color:section===s.id?"#111":"rgba(255,255,255,.65)",
-                display:"flex", alignItems:"center", gap:10, transition:"all .2s" }}>
-              <span style={{ fontSize:18 }}>{s.icon}</span> {s.label}
+// ════════════════════════════════════════════════════
+// LIVE DATA PAGES
+// ════════════════════════════════════════════════════
+function TechContentPage({ defaultTab = "tips" }) {
+  const activeTab = defaultTab;
+  const [filter, setFilter] = useState("all");
+
+  const { docs: tipsDocs, loading: tipsLoading } = useCollection(
+    "tips",
+    "createdAt",
+  );
+  const { docs: updatesDocs, loading: updatesLoading } = useCollection(
+    "updates",
+    "createdAt",
+  );
+
+  const loading = tipsLoading || updatesLoading;
+
+  const [art, setArt] = useState(null);
+  const [vid, setVid] = useState(null);
+
+  // Use the collection source as the primary indicator, fallback to category
+  const filteredDocs = (activeTab === "tips" ? tipsDocs : updatesDocs)
+    .filter((d) => {
+      if (filter === "all") return true;
+      if (filter === "article") return d.type === "article" || !d.type;
+      if (filter === "video") return d.type === "video";
+      return true;
+    });
+
+  return (
+    <section style={{ padding: "26px 0" }}>
+      <W>
+        {art && (
+          <ArticleModal
+            article={art}
+            onClose={() => setArt(null)}
+            collection={
+              art.category === "tech-tips" || art.sectionType === "techTips"
+                ? "tips"
+                : "updates"
+            }
+          />
+        )}
+        {vid && (
+          <VideoModal
+            video={vid}
+            onClose={() => setVid(null)}
+            collection={
+              vid.category === "tech-tips" || vid.sectionType === "techTips"
+                ? "tips"
+                : "updates"
+            }
+          />
+        )}
+
+        <SHead
+          title="Tech"
+          hi={activeTab === "tips" ? "Tips" : "Updates"}
+          copy={
+            activeTab === "tips"
+              ? "Jifunze maujanja ya Android, iPhone, PC na AI kwa matumizi ya kila siku."
+              : "Pata habari mpya na trends za teknolojia zinazobadilisha dunia."
+          }
+        />
+
+        {/* Filters: All | Articles | Videos */}
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            marginBottom: 32,
+            overflowX: "auto",
+            paddingBottom: 4,
+            scrollbarWidth: "none",
+          }}
+        >
+          {["all", "article", "video"].map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                padding: "8px 20px",
+                borderRadius: 999,
+                border: "1px solid",
+                borderColor: filter === f ? G : "rgba(255,255,255,.1)",
+                background:
+                  filter === f ? "rgba(245,166,35,.1)" : "transparent",
+                color: filter === f ? G : "rgba(255,255,255,.6)",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: "pointer",
+                textTransform: "capitalize",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {f === "all" ? "All Content" : f + "s"}
             </button>
           ))}
         </div>
 
-        <div style={{ marginTop:"auto", paddingTop:24 }}>
-          <button onClick={onBack} style={{ border:"1px solid rgba(255,255,255,.08)", borderRadius:12, padding:"10px 14px", background:"transparent", color:"rgba(255,255,255,.5)", cursor:"pointer", fontWeight:700, fontSize:13, width:"100%", display:"flex", alignItems:"center", gap:8 }}>
-            ← Rudi Website
-          </button>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+            gap: 22,
+            marginBottom: 40,
+          }}
+        >
+          {loading
+            ? [1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} />)
+            : filteredDocs.map((item) =>
+                item.type === "video" ? (
+                  <VideoCard
+                    key={item.id}
+                    item={item}
+                    onPlay={setVid}
+                    collection={activeTab}
+                  />
+                ) : (
+                  <ArticleCard
+                    key={item.id}
+                    item={item}
+                    onRead={setArt}
+                    collection={activeTab}
+                  />
+                ),
+              )}
+          {!loading && filteredDocs.length === 0 && (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                textAlign: "center",
+                padding: 60,
+                color: "rgba(255,255,255,.4)",
+                background: "rgba(255,255,255,.02)",
+                borderRadius: 24,
+                border: "1px dashed rgba(255,255,255,.1)",
+              }}
+            >
+              <div style={{ fontSize: 40, marginBottom: 16 }}>📭</div>
+              <div
+                style={{
+                  fontSize: 18,
+                  fontWeight: 800,
+                  color: "#fff",
+                  marginBottom: 8,
+                }}
+              >
+                Hakuna Content Bado
+              </div>
+              <div style={{ fontSize: 14, maxWidth: 400, margin: "0 auto", lineHeight: 1.6 }}>
+                Sehemu hii ya {activeTab === "tips" ? "Tech Tips" : "Tech Updates"} haina content kwa sasa. 
+                Kama wewe ni admin, tafadhali ongeza content kupitia <strong>Admin Panel</strong>.
+              </div>
+            </div>
+          )}
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function DealCard({ d, i, goPage }) {
+  const getCTA = () => {
+    if (d.ctaText) return { text: d.ctaText, url: d.directLink || d.affiliateLink || d.whatsappLink };
+    if (d.dealType === "affiliate_offer")
+      return { text: "Nunua Sasa", url: d.affiliateLink };
+    if (d.dealType === "lead_offer")
+      return { text: "Ulizia WhatsApp", url: d.whatsappLink };
+    if (d.dealType === "promo_code")
+      return { text: "Tumia Promo Code", url: d.directLink };
+    return { text: "Pata Deal", url: d.directLink };
+  };
+
+  const cta = getCTA();
+
+  return (
+    <TiltCard key={d.id || i} onClick={() => goPage && goPage("deal-detail", d)} style={{ cursor: "pointer" }}>
+      <Thumb
+        bg={d.bg || "linear-gradient(135deg,#00c4cc,#7d2ae8)"}
+        name={d.name}
+        badge={d.badge}
+        imageUrl={d.imageUrl}
+      />
+      <div
+        style={{
+          padding: "18px 18px 20px",
+          display: "flex",
+          gap: 14,
+          alignItems: "flex-start",
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <h3
+            style={{
+              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontSize: 19,
+              margin: "0 0 4px",
+              letterSpacing: "-.03em",
+            }}
+          >
+            {d.name}
+          </h3>
+          <p
+            style={{
+              color: "rgba(255,255,255,.68)",
+              fontSize: 14,
+              lineHeight: 1.7,
+              margin: "8px 0",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {d.description}
+          </p>
+          
+          {d.joinedCount && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: "rgba(255,255,255,.5)" }}>
+              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#00c4cc", animation: "pulse 2s infinite" }}></span>
+              {d.liveJoinedText || `${d.joinedCount}+ members joined`}
+            </div>
+          )}
+
+          {d.oldPrice && (
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+                margin: "10px 0 12px",
+              }}
+            >
+              <span
+                style={{
+                  color: "rgba(255,255,255,.42)",
+                  textDecoration: "line-through",
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}
+              >
+                {d.oldPrice}
+              </span>
+              <span style={{ color: G, fontSize: 20, fontWeight: 900 }}>
+                {d.newPrice}
+              </span>
+              {d.savingsText && (
+                <span style={{ fontSize: 12, color: "#00c4cc", fontWeight: 700, background: "rgba(0,196,204,.1)", padding: "2px 8px", borderRadius: 10 }}>
+                  {d.savingsText}
+                </span>
+              )}
+            </div>
+          )}
+          {d.promoCode && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "12px 14px",
+                borderRadius: 13,
+                border: "1px dashed rgba(245,166,35,.3)",
+                background: "rgba(245,166,35,.07)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: ".1em",
+                  textTransform: "uppercase",
+                  color: "rgba(255,255,255,.38)",
+                  marginBottom: 6,
+                }}
+              >
+                🎫 Promo Code
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <strong
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 900,
+                    color: G,
+                    letterSpacing: ".06em",
+                  }}
+                >
+                  {d.promoCode}
+                </strong>
+                <CopyBtn code={d.promoCode} />
+              </div>
+            </div>
+          )}
+          <div style={{ marginTop: 14 }}>
+            <GoldBtn onClick={(e) => {
+              if (!goPage) {
+                window.open(cta.url, "_blank");
+              } else {
+                e.stopPropagation();
+                goPage("deal-detail", d);
+              }
+            }}>
+              {cta.text} →
+            </GoldBtn>
+          </div>
+        </div>
+      </div>
+    </TiltCard>
+  );
+}
+
+function DealsPage({ goPage }) {
+  const { docs, loading } = useCollection("deals", "createdAt");
+  const deals = docs.filter((d) => d.active !== false);
+
+  return (
+    <section style={{ padding: "26px 0" }}>
+      <W>
+        <SHead
+          title="Premium"
+          hi="Deals"
+          copy="Discounts, promo codes na referral deals — napata commission, wewe unapata bei nzuri."
+        />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))",
+            gap: 24,
+          }}
+        >
+          {loading ? (
+            [1, 2, 3].map((i) => <Skeleton key={i} />)
+          ) : deals.length > 0 ? (
+            deals.map((d, i) => <DealCard key={d.id || i} d={d} i={i} goPage={goPage} />)
+          ) : (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                padding: 60,
+                textAlign: "center",
+                background: "rgba(255,255,255,.02)",
+                borderRadius: 24,
+                color: "rgba(255,255,255,.4)",
+              }}
+            >
+              Hakuna Deals kwa sasa.
+            </div>
+          )}
+        </div>
+      </W>
+    </section>
+  );
+}
+
+
+function CourseListItem({ c, goPage }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = c.imageUrl && !imgError;
+
+  return (
+    <TiltCard className="course-list-item" style={{ overflow: "hidden" }}>
+      {/* Top: Image & Badge */}
+      <div
+        className="course-img-container"
+        style={{
+          position: "relative",
+          overflow: "hidden",
+          background: "rgba(255,255,255,.05)",
+        }}
+      >
+        {hasImage ? (
+          <img
+            loading="lazy"
+            src={c.imageUrl}
+            alt={c.title}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "center",
+              display: "block",
+            }}
+            referrerPolicy="no-referrer"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "grid",
+              placeItems: "center",
+              opacity: 0.1,
+            }}
+          >
+            <BookOpen size={64} />
+          </div>
+        )}
+        {c.badge && (
+          <div
+            style={{
+              position: "absolute",
+              top: 16,
+              left: 16,
+              background: G,
+              color: "#000",
+              padding: "6px 12px",
+              borderRadius: 8,
+              fontSize: 11,
+              fontWeight: 900,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              zIndex: 2,
+            }}
+          >
+            {c.badge}
+          </div>
+        )}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 12,
+            right: 12,
+            background: "rgba(0,0,0,.6)",
+            backdropFilter: "blur(4px)",
+            padding: "4px 10px",
+            borderRadius: 8,
+            fontSize: 12,
+            fontWeight: 700,
+            color: "#fff",
+            border: "1px solid rgba(255,255,255,.2)",
+            zIndex: 2,
+          }}
+        >
+          {c.level || "All Levels"}
         </div>
       </div>
 
-      {/* Main content */}
-      <div style={{ padding:"28px 32px", overflowY:"auto" }}>
+      {/* Bottom: Content */}
+      <div
+        className="course-content"
+        style={{
+          padding: 24,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+          flex: 1,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+          }}
+        >
+          <h3
+            style={{
+              fontFamily: "'Bricolage Grotesque', sans-serif",
+              fontSize: 24,
+              margin: 0,
+              letterSpacing: "-.03em",
+              lineHeight: 1.2,
+              flex: 1,
+            }}
+          >
+            {c.title}
+          </h3>
+          <div style={{ textAlign: "right" }}>
+            {c.oldPrice && (
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "rgba(255,255,255,.3)",
+                  textDecoration: "line-through",
+                }}
+              >
+                {c.oldPrice}
+              </div>
+            )}
+            <div style={{ fontSize: 22, fontWeight: 900, color: G }}>
+              {c.newPrice || c.price}
+            </div>
+          </div>
+        </div>
 
-        {section==="overview" && (
-          <div>
-            <div style={{ marginBottom:28 }}>
-              <h1 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:32, margin:"0 0 6px" }}>
-                Karibu, <span style={{ color:G }}>{user?.displayName||"Admin"}</span> 👋
-              </h1>
-              <p style={{ color:"rgba(255,255,255,.45)", fontSize:15, margin:0 }}>
-                Hapa unaweza kumanage content yote ya STEA — posts, deals, courses na users.
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            color: "rgba(255,255,255,.5)",
+            fontSize: 13,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Star size={14} fill={G} color={G} />
+            <span>{c.rating || "5.0"}</span>
+          </div>
+          <span style={{ opacity: 0.3 }}>•</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Users size={14} />
+            <span>{c.studentsCount || "100+"}</span>
+          </div>
+          <span style={{ opacity: 0.3 }}>•</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Clock size={14} />
+            <span>{c.duration || "4 Weeks"}</span>
+          </div>
+        </div>
+
+        <p
+          style={{
+            color: "rgba(255,255,255,.6)",
+            fontSize: 15,
+            lineHeight: 1.6,
+            margin: 0,
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {c.desc}
+        </p>
+
+        {/* Benefits Preview */}
+        <div
+          style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}
+        >
+          {(c.whatYouWillLearn || []).slice(0, 2).map((item, idx) => (
+            <div
+              key={idx}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: "rgba(255,255,255,.7)",
+                background: "rgba(255,255,255,.03)",
+                padding: "4px 10px",
+                borderRadius: 6,
+                border: "1px solid rgba(255,255,255,.05)",
+              }}
+            >
+              <Check size={12} color={G} />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            marginTop: "auto",
+            paddingTop: 16,
+            borderTop: "1px solid rgba(255,255,255,.05)",
+          }}
+        >
+          <GoldBtn
+            onClick={() => goPage("course-detail", c)}
+            style={{ width: "100%", padding: "12px", fontSize: 14 }}
+          >
+            {c.cta || "Anza Sasa"} →
+          </GoldBtn>
+        </div>
+      </div>
+    </TiltCard>
+  );
+}
+
+function CoursesPage({ goPage }) {
+  const { docs, loading } = useCollection("courses", "createdAt");
+  const courses = docs;
+
+  return (
+    <section style={{ padding: "40px 0" }}>
+      <W>
+        <SHead
+          title="Jifunze Skills"
+          hi="Zinazolipa Sana Mtandaoni"
+          copy="Kutoka kwa wataalamu wa teknolojia Tanzania — Mwaka 2026 ni mwaka wako wa kupata pesa kupitia skills za teknolojia."
+        />
+
+        {/* Courses List */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+            gap: 32,
+            marginBottom: 80,
+          }}
+        >
+          {loading ? (
+            [1, 2, 3].map((i) => <Skeleton key={i} />)
+          ) : courses.length > 0 ? (
+            courses.map((c, i) => (
+              <CourseListItem key={c.id || i} c={c} goPage={goPage} />
+            ))
+          ) : (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                padding: 60,
+                textAlign: "center",
+                background: "rgba(255,255,255,.02)",
+                borderRadius: 24,
+                color: "rgba(255,255,255,.4)",
+              }}
+            >
+              Hakuna Courses kwa sasa.
+            </div>
+          )}
+        </div>
+
+        {/* Trust Section: Why STEA? */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 24,
+            marginBottom: 100,
+          }}
+        >
+          {[
+            {
+              icon: <Users color={G} />,
+              title: "10,000+ Wanafunzi",
+              desc: "Jamii kubwa ya teknolojia.",
+            },
+            {
+              icon: <Award color={G} />,
+              title: "Vyeti Rasmi",
+              desc: "Utambulisho wa ujuzi wako.",
+            },
+            {
+              icon: <ShieldCheck color={G} />,
+              title: "Malipo Salama",
+              desc: "Yanasimamiwa na STEA.",
+            },
+            {
+              icon: <Zap color={G} />,
+              title: "Ujuzi wa Vitendo",
+              desc: "Sio nadharia, ni kazi.",
+            },
+          ].map((item, i) => (
+            <div
+              key={i}
+              style={{
+                padding: 32,
+                borderRadius: 24,
+                background: "rgba(255,255,255,.02)",
+                border: "1px solid rgba(255,255,255,.05)",
+                textAlign: "center",
+                transition: "transform .3s ease",
+              }}
+            >
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 16,
+                  background: "rgba(245,166,35,.08)",
+                  display: "grid",
+                  placeItems: "center",
+                  margin: "0 auto 20px",
+                }}
+              >
+                {item.icon}
+              </div>
+              <h4 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>
+                {item.title}
+              </h4>
+              <p
+                style={{
+                  fontSize: 14,
+                  color: "rgba(255,255,255,.4)",
+                  lineHeight: 1.5,
+                  margin: 0,
+                }}
+              >
+                {item.desc}
               </p>
             </div>
+          ))}
+        </div>
+      </W>
+    </section>
+  );
+}
 
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:16, marginBottom:32 }}>
-              <StatCard icon="💡" label="Tech Tips Posts" value={counts.tips}/>
-              <StatCard icon="📰" label="Tech Updates" value={counts.updates} color="#56b7ff"/>
-              <StatCard icon="🤖" label="Prompts" value={counts.prompts} color="#ff85cf"/>
-              <StatCard icon="🏷️" label="Active Deals" value={counts.deals} color="#a5b4fc"/>
-              <StatCard icon="🎓" label="Courses" value={counts.courses} color="#67f0c1"/>
-              <StatCard icon="🛒" label="Duka Products" value={counts.products} color="#fbbf24"/>
-              <StatCard icon="🌐" label="Websites" value={counts.websites} color="#818cf8"/>
-              <StatCard icon="👥" label="Users" value={counts.users} color="#ff85cf"/>
-              <StatCard icon="📢" label="Sponsored Ads" value={counts.sponsored_ads} color="#f5a623"/>
-              <StatCard icon="💳" label="Orders" value={counts.orders} color="#67f0c1"/>
-              <StatCard icon="🔄" label="Subscriptions" value={counts.subscriptions} color="#a5b4fc"/>
-              <StatCard icon="💰" label="Payments" value={counts.payments} color="#f5a623"/>
-              <StatCard icon="📦" label="Deliveries" value={counts.deliveries} color="#67f0c1"/>
+function DealDetailPage({ deal: d, goPage }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = d && d.imageUrl && !imgError;
+
+  if (!d)
+    return (
+      <div style={{ padding: 100, textAlign: "center" }}>
+        Deal not found.{" "}
+        <button onClick={() => goPage("deals")}>Back to Deals</button>
+      </div>
+    );
+
+  const getCTA = () => {
+    if (d.ctaText) return { text: d.ctaText, url: d.directLink || d.affiliateLink || d.whatsappLink };
+    if (d.dealType === "affiliate_offer")
+      return { text: "Nunua Sasa", url: d.affiliateLink };
+    if (d.dealType === "lead_offer")
+      return { text: "Ulizia WhatsApp", url: d.whatsappLink };
+    if (d.dealType === "promo_code")
+      return { text: "Tumia Promo Code", url: d.directLink };
+    return { text: "Pata Deal", url: d.directLink };
+  };
+
+  const cta = getCTA();
+  const features = d.includedFeatures ? d.includedFeatures.split('\n').filter(f => f.trim()) : [];
+
+  return (
+    <div style={{ paddingBottom: 100 }}>
+      {/* Hero Section */}
+      <section
+        style={{
+          background: d.bg || "linear-gradient(135deg, #1a1d2e, #0f111a)",
+          padding: "60px 0 40px",
+          borderBottom: "1px solid rgba(255,255,255,.05)",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        <W>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: 40,
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                {d.badge && (
+                  <span
+                    style={{
+                      background: "rgba(245,166,35,.15)",
+                      color: G,
+                      padding: "4px 12px",
+                      borderRadius: 20,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      border: "1px solid rgba(245,166,35,.3)",
+                    }}
+                  >
+                    {d.badge}
+                  </span>
+                )}
+                {d.provider && (
+                  <span style={{ color: "rgba(255,255,255,.5)", fontSize: 14 }}>
+                    by {d.provider}
+                  </span>
+                )}
+              </div>
+              <h1
+                style={{
+                  fontSize: "clamp(32px, 5vw, 48px)",
+                  fontWeight: 900,
+                  lineHeight: 1.1,
+                  margin: "0 0 20px",
+                  letterSpacing: "-.03em",
+                }}
+              >
+                {d.name}
+              </h1>
+              <p
+                style={{
+                  fontSize: 18,
+                  color: "rgba(255,255,255,.7)",
+                  lineHeight: 1.6,
+                  margin: "0 0 30px",
+                  maxWidth: 600,
+                }}
+              >
+                {d.description}
+              </p>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 30 }}>
+                {d.oldPrice && (
+                  <span
+                    style={{
+                      color: "rgba(255,255,255,.4)",
+                      textDecoration: "line-through",
+                      fontSize: 20,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {d.oldPrice}
+                  </span>
+                )}
+                <span style={{ color: G, fontSize: 36, fontWeight: 900 }}>
+                  {d.newPrice}
+                </span>
+                {d.savingsText && (
+                  <span style={{ fontSize: 14, color: "#00c4cc", fontWeight: 700, background: "rgba(0,196,204,.1)", padding: "4px 12px", borderRadius: 12 }}>
+                    {d.savingsText}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <GoldBtn
+                  onClick={() => window.open(cta.url, "_blank")}
+                  style={{ fontSize: 16, padding: "16px 32px" }}
+                >
+                  {cta.text} →
+                </GoldBtn>
+                
+                {d.promoCode && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 20px",
+                      borderRadius: 16,
+                      border: "1px dashed rgba(245,166,35,.3)",
+                      background: "rgba(245,166,35,.07)",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Promo Code</div>
+                      <strong style={{ fontSize: 18, color: G, letterSpacing: 1 }}>{d.promoCode}</strong>
+                    </div>
+                    <CopyBtn code={d.promoCode} />
+                  </div>
+                )}
+              </div>
+
+              {/* Trust Elements */}
+              <div style={{ display: "flex", alignItems: "center", gap: 20, marginTop: 30, flexWrap: "wrap" }}>
+                {d.joinedCount && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "rgba(255,255,255,.6)" }}>
+                    <div style={{ display: "flex", paddingLeft: 10 }}>
+                      {[1, 2, 3].map(i => (
+                        <div key={i} style={{ width: 28, height: 28, borderRadius: "50%", background: "#2a2d3e", border: "2px solid #1a1d2e", marginLeft: -10, display: "grid", placeItems: "center", fontSize: 10 }}>👤</div>
+                      ))}
+                    </div>
+                    <span>
+                      <strong style={{ color: "#fff" }}>{d.joinedCount}+</strong> {d.liveJoinedText || "members joined"}
+                      {d.todayJoinedCount && <span style={{ color: G, marginLeft: 6 }}>({d.todayJoinedCount} today)</span>}
+                    </span>
+                  </div>
+                )}
+                {d.rating && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, color: "rgba(255,255,255,.6)" }}>
+                    <span style={{ color: G }}>★</span>
+                    <strong style={{ color: "#fff" }}>{d.rating}/5</strong> rating
+                  </div>
+                )}
+                {d.urgencyText && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, color: "#ef4444" }}>
+                    <span style={{ animation: "pulse 2s infinite" }}>🔥</span>
+                    {d.urgencyText}
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Quick guide */}
-            <div style={{ borderRadius:20, border:"1px solid rgba(245,166,35,.2)", background:"rgba(245,166,35,.06)", padding:24 }}>
-              <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:20, margin:"0 0 16px", color:G }}>📋 Mwongozo wa Haraka</h3>
-              <div style={{ display:"grid", gap:12 }}>
-                {[
-                  { step:"1", title:"Ongeza Tech Tips", desc:"Nenda Tech Tips → ongeza articles za kweli kwa Kiswahili + videos za YouTube/TikTok" },
-                  { step:"2", title:"Weka Habari za Tech Updates", desc:"Nenda Tech Updates → weka habari mpya za ulimwengu wa tech kila siku" },
-                  { step:"3", title:"Update Deals na links za kweli", desc:"Nenda Deals → badilisha URL za dummy na affiliate links zako za kweli" },
-                  { step:"4", title:"Weka WhatsApp links kwa Courses", desc:"Nenda Courses → kila kozi iweke WhatsApp link ili watu wakuwasiliane nawe" },
-                ].map(g=>(
-                  <div key={g.step} style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
-                    <div style={{ width:28, height:28, borderRadius:8, background:`linear-gradient(135deg,${G},${G2})`, display:"grid", placeItems:"center", color:"#111", fontWeight:900, fontSize:13, flexShrink:0 }}>{g.step}</div>
-                    <div>
-                      <div style={{ fontWeight:800, fontSize:14, marginBottom:3 }}>{g.title}</div>
-                      <div style={{ fontSize:13, color:"rgba(255,255,255,.5)", lineHeight:1.6 }}>{g.desc}</div>
-                    </div>
+            {/* Image/Media */}
+            <div style={{ position: "relative" }}>
+              <div
+                style={{
+                  aspectRatio: "4/3",
+                  borderRadius: 24,
+                  overflow: "hidden",
+                  background: "rgba(255,255,255,.02)",
+                  border: "1px solid rgba(255,255,255,.05)",
+                  boxShadow: "0 30px 60px rgba(0,0,0,.3)",
+                }}
+              >
+                {hasImage ? (
+                  <img
+                    src={d.imageUrl}
+                    alt={d.name}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    onError={() => setImgError(true)}
+                  />
+                ) : (
+                  <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", fontSize: 64, opacity: 0.1 }}>
+                    🎁
                   </div>
-                ))}
+                )}
               </div>
+            </div>
+          </div>
+        </W>
+      </section>
+
+      {/* Content Section */}
+      <section style={{ padding: "60px 0" }}>
+        <W>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)", gap: 60 }}>
+            {/* Main Content */}
+            <div>
+              {d.fullDescription && (
+                <div style={{ marginBottom: 40 }}>
+                  <h2 style={{ fontSize: 24, marginBottom: 20 }}>What is this?</h2>
+                  <div style={{ color: "rgba(255,255,255,.7)", lineHeight: 1.8, fontSize: 16, whiteSpace: "pre-wrap" }}>
+                    {d.fullDescription}
+                  </div>
+                </div>
+              )}
+
+              {d.whyThisDeal && (
+                <div style={{ marginBottom: 40 }}>
+                  <h2 style={{ fontSize: 24, marginBottom: 20 }}>Why should I buy it?</h2>
+                  <div style={{ color: "rgba(255,255,255,.7)", lineHeight: 1.8, fontSize: 16, whiteSpace: "pre-wrap" }}>
+                    {d.whyThisDeal}
+                  </div>
+                </div>
+              )}
+
+              {features.length > 0 && (
+                <div style={{ marginBottom: 40 }}>
+                  <h2 style={{ fontSize: 24, marginBottom: 20 }}>What do I get?</h2>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 16 }}>
+                    {features.map((f, i) => (
+                      <li key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start", color: "rgba(255,255,255,.8)", fontSize: 16, lineHeight: 1.6 }}>
+                        <span style={{ color: "#00c4cc", marginTop: 2 }}>✓</span>
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {d.reviewText && (
+                <div style={{ padding: 30, background: "rgba(255,255,255,.02)", borderRadius: 20, border: "1px solid rgba(255,255,255,.05)", marginBottom: 40 }}>
+                  <div style={{ color: G, fontSize: 24, marginBottom: 10 }}>&quot;</div>
+                  <p style={{ fontSize: 18, fontStyle: "italic", color: "rgba(255,255,255,.8)", lineHeight: 1.6, margin: 0 }}>
+                    {d.reviewText}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Sidebar */}
+            <div>
+              <div style={{ position: "sticky", top: 100 }}>
+                <div style={{ padding: 30, background: "rgba(255,255,255,.02)", borderRadius: 24, border: "1px solid rgba(255,255,255,.05)" }}>
+                  <h3 style={{ fontSize: 20, marginBottom: 20 }}>Deal Summary</h3>
+                  
+                  <div style={{ display: "grid", gap: 16, marginBottom: 30 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "rgba(255,255,255,.6)" }}>
+                      <span>Original Price</span>
+                      <span style={{ textDecoration: "line-through" }}>{d.oldPrice || "-"}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "rgba(255,255,255,.9)", fontWeight: 700 }}>
+                      <span>Current Price</span>
+                      <span style={{ color: G }}>{d.newPrice || "-"}</span>
+                    </div>
+                    {d.savingsText && (
+                      <div style={{ display: "flex", justifyContent: "space-between", color: "#00c4cc", fontWeight: 700, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,.1)" }}>
+                        <span>You Save</span>
+                        <span>{d.savingsText}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <GoldBtn
+                    onClick={() => window.open(cta.url, "_blank")}
+                    style={{ width: "100%", padding: "16px", fontSize: 16, justifyContent: "center" }}
+                  >
+                    {cta.text} →
+                  </GoldBtn>
+
+                  {d.terms && (
+                    <div style={{ marginTop: 20, fontSize: 12, color: "rgba(255,255,255,.4)", lineHeight: 1.6, textAlign: "center" }}>
+                      {d.terms}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </W>
+      </section>
+    </div>
+  );
+}
+
+function CourseDetailPage({ course: c, goPage }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = c && c.imageUrl && !imgError;
+
+  if (!c)
+    return (
+      <div style={{ padding: 100, textAlign: "center" }}>
+        Course not found.{" "}
+        <button onClick={() => goPage("courses")}>Back to Courses</button>
+      </div>
+    );
+
+  const isFree =
+    c.free ||
+    (c.newPrice && c.newPrice.toLowerCase().includes("bure")) ||
+    (c.price && c.price.toLowerCase().includes("bure"));
+  const ctaText =
+    c.cta || (isFree ? "Anza Bure Sasa" : "Jiunge na Kozi Hii Sasa");
+
+  const testimonials = [];
+  if (c.testimonial1Text)
+    testimonials.push({
+      name: c.testimonial1Name || "Mwanafunzi wa STEA",
+      role: c.testimonial1Role || "Mwanafunzi",
+      text: c.testimonial1Text,
+    });
+  if (c.testimonial2Text)
+    testimonials.push({
+      name: c.testimonial2Name || "Mwanafunzi wa STEA",
+      role: c.testimonial2Role || "Mwanafunzi",
+      text: c.testimonial2Text,
+    });
+  if (c.testimonial3Text)
+    testimonials.push({
+      name: c.testimonial3Name || "Mwanafunzi wa STEA",
+      role: c.testimonial3Role || "Mwanafunzi",
+      text: c.testimonial3Text,
+    });
+
+  const faqs = [];
+  if (c.faq1Question && c.faq1Answer)
+    faqs.push({ q: c.faq1Question, a: c.faq1Answer });
+  if (c.faq2Question && c.faq2Answer)
+    faqs.push({ q: c.faq2Question, a: c.faq2Answer });
+  if (c.faq3Question && c.faq3Answer)
+    faqs.push({ q: c.faq3Question, a: c.faq3Answer });
+
+  return (
+    <section style={{ padding: "40px 0" }}>
+      <W>
+        <button
+          onClick={() => goPage("courses")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: "rgba(255,255,255,.5)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            marginBottom: 32,
+            fontSize: 15,
+            fontWeight: 600,
+          }}
+        >
+          <ChevronRight size={18} style={{ transform: "rotate(180deg)" }} />
+          Back to Courses
+        </button>
+
+        {/* Hero Section */}
+        <div
+          className="course-hero"
+          style={{
+            gap: "clamp(30px, 5vw, 60px)",
+            marginBottom: 80,
+            alignItems: "start",
+          }}
+        >
+          {/* Left: Image */}
+          <div
+            className="course-hero-img"
+            style={{
+              position: "relative",
+              borderRadius: 32,
+              overflow: "hidden",
+              border: "1px solid rgba(255,255,255,.1)",
+              boxShadow: "0 20px 50px rgba(0,0,0,.5)",
+              background: "rgba(255,255,255,.05)",
+              display: "grid",
+              placeItems: "center",
+            }}
+          >
+            {hasImage ? (
+              <img
+                loading="lazy"
+                src={c.imageUrl}
+                alt={c.title}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  display: "block",
+                  objectPosition: "center",
+                }}
+                referrerPolicy="no-referrer"
+                onError={() => setImgError(true)}
+              />
+            ) : (
+              <BookOpen size={64} style={{ opacity: 0.1 }} />
+            )}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background:
+                  "linear-gradient(to top, rgba(5,6,10,.8), transparent)",
+              }}
+            />
+            {c.badge && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 24,
+                  left: 24,
+                  background: G,
+                  color: "#000",
+                  padding: "8px 16px",
+                  borderRadius: 12,
+                  fontSize: 13,
+                  fontWeight: 900,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                }}
+              >
+                {c.badge}
+              </div>
+            )}
+          </div>
+
+          {/* Right: Info */}
+          <div className="course-hero-info" style={{ padding: "20px 0" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                color: G,
+                fontSize: 14,
+                fontWeight: 700,
+                marginBottom: 16,
+              }}
+            >
+              <Award size={16} />
+              <span>{c.level || "Beginner"}</span>
+              <span style={{ opacity: 0.3 }}>•</span>
+              <Users size={16} />
+              <span>{c.studentsCount || "100+"} Wanafunzi</span>
+              <span style={{ opacity: 0.3 }}>•</span>
+              <Star size={16} fill={G} />
+              <span>{c.rating || "5.0"}</span>
+            </div>
+
+            <h1
+              style={{
+                fontFamily: "'Bricolage Grotesque', sans-serif",
+                fontSize: "clamp(32px, 5vw, 62px)",
+                margin: 0,
+                letterSpacing: "-.04em",
+                lineHeight: 1.05,
+              }}
+            >
+              {c.title}
+            </h1>
+            <p
+              style={{
+                color: G,
+                fontSize: 22,
+                fontWeight: 800,
+                marginTop: 14,
+                letterSpacing: 0.5,
+                textTransform: "uppercase",
+              }}
+            >
+              {c.shortPromise}
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 24,
+                margin: "36px 0",
+              }}
+            >
+              <div style={{ textAlign: "left" }}>
+                {c.oldPrice && (
+                  <div
+                    style={{
+                      fontSize: 18,
+                      color: "rgba(255,255,255,.3)",
+                      textDecoration: "line-through",
+                      marginBottom: 2,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {c.oldPrice}
+                  </div>
+                )}
+                <div
+                  style={{
+                    fontSize: 52,
+                    fontWeight: 900,
+                    color: "#fff",
+                    letterSpacing: "-0.03em",
+                    lineHeight: 1,
+                  }}
+                >
+                  {c.newPrice || c.price}
+                </div>
+              </div>
+              <div
+                style={{
+                  width: 1,
+                  height: 60,
+                  background: "rgba(255,255,255,.15)",
+                }}
+              />
+              <div
+                style={{
+                  fontSize: 15,
+                  color: "rgba(255,255,255,.5)",
+                  lineHeight: 1.6,
+                  maxWidth: 280,
+                  fontWeight: 500,
+                }}
+              >
+                {c.priceDisclaimerShort ||
+                  "Lifetime access. Malipo ni salama kupitia mitandao yote ya simu Tanzania."}
+              </div>
+            </div>
+
+            <p
+              style={{
+                color: "rgba(255,255,255,.7)",
+                fontSize: 18,
+                lineHeight: 1.8,
+                marginBottom: 40,
+                maxWidth: 800,
+              }}
+            >
+              {c.desc}
+            </p>
+
+            <div style={{ display: "flex", gap: 16, marginBottom: 48 }}>
+              <GoldBtn
+                onClick={() =>
+                  window.open(
+                    `https://wa.me/8619715852043?text=Habari%20STEA%20%F0%9F%91%8B%20Nahitaji%20kujiunga%20na%20kozi%20ya%20${encodeURIComponent(c.title)}`,
+                  )
+                }
+                style={{
+                  padding: "18px 40px",
+                  fontSize: 18,
+                  boxShadow: `0 12px 32px ${G}44`,
+                }}
+              >
+                Jiunge na Kozi Hii Sasa →
+              </GoldBtn>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 32,
+                marginBottom: 48,
+              }}
+            >
+              <div style={{ display: "flex", gap: 16 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,.05)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: G,
+                  }}
+                >
+                  <Clock size={24} />
+                </div>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "rgba(255,255,255,.4)",
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      marginBottom: 4,
+                    }}
+                  >
+                    Duration
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>
+                    {c.duration || "4 Weeks"}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,.05)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: G,
+                  }}
+                >
+                  <BookOpen size={24} />
+                </div>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "rgba(255,255,255,.4)",
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      marginBottom: 4,
+                    }}
+                  >
+                    Lessons
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>
+                    {c.totalLessons || "12"} Modules
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,.05)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: G,
+                  }}
+                >
+                  <Award size={24} />
+                </div>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "rgba(255,255,255,.4)",
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      marginBottom: 4,
+                    }}
+                  >
+                    Certificate
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>
+                    {c.certificateIncluded ? "Included" : "Not Included"}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,.05)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: G,
+                  }}
+                >
+                  <Zap size={24} />
+                </div>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "rgba(255,255,255,.4)",
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      marginBottom: 4,
+                    }}
+                  >
+                    Support
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>
+                    {c.supportType || "WhatsApp"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* What you will learn & Suitable For */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 40,
+            marginBottom: 100,
+          }}
+        >
+          <div
+            style={{
+              padding: 40,
+              borderRadius: 32,
+              background: "rgba(255,255,255,.02)",
+              border: "1px solid rgba(255,255,255,.05)",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: 22,
+                fontWeight: 800,
+                marginBottom: 24,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: `${G}22`,
+                  display: "grid",
+                  placeItems: "center",
+                  color: G,
+                }}
+              >
+                <Check size={18} />
+              </div>
+              Utajifunza Nini:
+            </h3>
+            <div style={{ display: "grid", gap: 16 }}>
+              {(c.whatYouWillLearn || []).map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 12,
+                    fontSize: 16,
+                    color: "rgba(255,255,255,.8)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <Check
+                    size={18}
+                    color={G}
+                    style={{ marginTop: 3, flexShrink: 0 }}
+                  />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div
+            style={{
+              padding: 40,
+              borderRadius: 32,
+              background: "rgba(255,255,255,.02)",
+              border: "1px solid rgba(255,255,255,.05)",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: 22,
+                fontWeight: 800,
+                marginBottom: 24,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: `${G}22`,
+                  display: "grid",
+                  placeItems: "center",
+                  color: G,
+                }}
+              >
+                <Users size={18} />
+              </div>
+              Inafaa Kwa:
+            </h3>
+            <div style={{ display: "grid", gap: 16 }}>
+              {(c.suitableFor || []).map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 12,
+                    fontSize: 16,
+                    color: "rgba(255,255,255,.8)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: G,
+                      marginTop: 10,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Testimonials Section */}
+        {testimonials.length > 0 && (
+          <div style={{ marginBottom: 100 }}>
+            <div style={{ textAlign: "center", marginBottom: 50 }}>
+              <h2
+                style={{
+                  fontFamily: "'Bricolage Grotesque', sans-serif",
+                  fontSize: 36,
+                  margin: 0,
+                }}
+              >
+                Student <span style={{ color: G }}>Results</span>
+              </h2>
+              <p
+                style={{
+                  color: "rgba(255,255,255,.5)",
+                  marginTop: 10,
+                  fontSize: 16,
+                }}
+              >
+                Ushuhuda kutoka kwa wanafunzi waliochukua kozi hii.
+              </p>
+            </div>
+            <div
+              className="testimonial-grid"
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(auto-fit, minmax(320px, 1fr))`,
+                gap: 32,
+              }}
+            >
+              {testimonials.map((t, i) => {
+                const initials = t.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .toUpperCase()
+                  .substring(0, 2);
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.1 }}
+                    whileHover={{
+                      y: -8,
+                      boxShadow: `0 24px 48px rgba(0,0,0,0.4)`,
+                      borderColor: "rgba(245,166,35,0.2)",
+                    }}
+                    style={{
+                      padding: 40,
+                      borderRadius: 32,
+                      background: "rgba(255,255,255,.02)",
+                      border: "1px solid rgba(255,255,255,.06)",
+                      position: "relative",
+                      transition:
+                        "all .4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 30,
+                        right: 40,
+                        opacity: 0.05,
+                      }}
+                    >
+                      <MessageCircle size={60} />
+                    </div>
+                    <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star key={s} size={16} fill={G} color={G} />
+                      ))}
+                    </div>
+                    <p
+                      style={{
+                        fontSize: 18,
+                        lineHeight: 1.8,
+                        color: "rgba(255,255,255,.85)",
+                        marginBottom: 36,
+                        fontStyle: "italic",
+                        fontWeight: 500,
+                        position: "relative",
+                        zIndex: 1,
+                      }}
+                    >
+                      &quot;{t.text}&quot;
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 16,
+                        position: "relative",
+                        zIndex: 1,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 52,
+                          height: 52,
+                          borderRadius: 16,
+                          background: `linear-gradient(135deg, ${G}, ${G2})`,
+                          color: "#111",
+                          display: "grid",
+                          placeItems: "center",
+                          fontWeight: 900,
+                          fontSize: 20,
+                          boxShadow: `0 8px 16px ${G}33`,
+                        }}
+                      >
+                        {initials}
+                      </div>
+                      <div>
+                        <div
+                          style={{
+                            fontWeight: 900,
+                            fontSize: 17,
+                            color: "#fff",
+                          }}
+                        >
+                          {t.name}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            color: "rgba(255,255,255,.45)",
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: 1,
+                          }}
+                        >
+                          {t.role || "Student"}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Subtle Card Glow */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: 0,
+                        right: 0,
+                        width: "100%",
+                        height: "100%",
+                        background: `radial-gradient(circle at bottom right, ${G}05, transparent 70%)`,
+                        borderRadius: 32,
+                        pointerEvents: "none",
+                      }}
+                    />
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {section==="ads"      && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>📢 Manage <span style={{color:G}}>Sponsored Ads</span></h2><SponsoredAdsManager/></>}
-        {section==="commerce" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>💳 Manage <span style={{color:G}}>Commerce</span></h2><CommerceManager/></>}
-        {section==="payments" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>💰 Manage <span style={{color:G}}>Payment Review</span></h2><PaymentReviewManager/></>}
-        {section==="subs"     && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🔄 Manage <span style={{color:G}}>Subscriptions</span></h2><SubscriptionManager/></>}
-        {section==="delivery" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>📦 Manage <span style={{color:G}}>Delivery</span></h2><DeliveryManager/></>}
-        {section==="templates" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>✉️ Manage <span style={{color:G}}>Templates</span></h2><MessageTemplateManager/></>}
-        {section==="tips"    && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>💡 Manage <span style={{color:G}}>Tech Tips</span></h2><TechContentManager collectionName="tips" /></>}
-        {section==="updates" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>📰 Manage <span style={{color:G}}>Tech Updates</span></h2><TechContentManager collectionName="updates" /></>}
-        {section==="prompts" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🤖 Manage <span style={{color:G}}>Prompt Lab</span></h2><PromptsManager/></>}
-        {section==="deals"   && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🏷️ Manage <span style={{color:G}}>Deals</span></h2><DealsManager/></>}
-        {section==="courses" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🎓 Manage <span style={{color:G}}>Courses</span></h2><CoursesManager/></>}
-        {section==="products" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🛒 Manage <span style={{color:G}}>Duka Products</span></h2><ProductsManager/></>}
-        {section==="websites" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>🌐 Manage <span style={{color:G}}>Websites</span></h2><WebsitesManager/></>}
-        {section==="content" && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>📝 Manage <span style={{color:G}}>Site Content</span></h2><SiteContentManager/></>}
-        {section==="users"   && <><h2 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:28, margin:"0 0 24px" }}>👥 Manage <span style={{color:G}}>Users</span></h2><UsersManager/></>}
+        {/* FAQ Section */}
+        {faqs.length > 0 && (
+          <div style={{ maxWidth: 900, margin: "0 auto 100px" }}>
+            <div style={{ textAlign: "center", marginBottom: 50 }}>
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 20,
+                  background: "rgba(245,166,35,.1)",
+                  display: "grid",
+                  placeItems: "center",
+                  margin: "0 auto 20px",
+                }}
+              >
+                <HelpCircle size={32} color={G} />
+              </div>
+              <h2
+                style={{
+                  fontFamily: "'Bricolage Grotesque', sans-serif",
+                  fontSize: 36,
+                  margin: 0,
+                }}
+              >
+                Maswali <span style={{ color: G }}>mnayouliza sana</span>
+              </h2>
+              <p style={{ color: "rgba(255,255,255,.5)", marginTop: 10 }}>
+                Kila kitu unachohitaji kujua kuhusu kozi hii.
+              </p>
+            </div>
+            <div style={{ display: "grid", gap: 16 }}>
+              {faqs.map((faq, i) => (
+                <motion.details
+                  key={i}
+                  className="faq-item"
+                  whileHover={{ scale: 1.01 }}
+                  style={{
+                    background: "rgba(255,255,255,.02)",
+                    border: "1px solid rgba(255,255,255,.06)",
+                    borderRadius: 24,
+                    overflow: "hidden",
+                    transition:
+                      "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+                  }}
+                >
+                  <summary
+                    style={{
+                      padding: "28px 36px",
+                      cursor: "pointer",
+                      fontWeight: 800,
+                      fontSize: 19,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      listStyle: "none",
+                      color: "#fff",
+                    }}
+                  >
+                    {faq.q}
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 10,
+                        background: "rgba(255,255,255,0.05)",
+                        display: "grid",
+                        placeItems: "center",
+                        transition: "0.3s",
+                      }}
+                      className="chevron-box"
+                    >
+                      <ChevronRight
+                        size={20}
+                        className="chevron"
+                        style={{ transition: "transform .4s ease" }}
+                      />
+                    </div>
+                  </summary>
+                  <div
+                    style={{
+                      padding: "0 36px 28px",
+                      color: "rgba(255,255,255,.65)",
+                      lineHeight: 1.9,
+                      fontSize: 17,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {faq.a}
+                  </div>
+                </motion.details>
+              ))}
+            </div>
+          </div>
+        )}
 
+        {/* Final CTA Section */}
+        <div
+          style={{
+            textAlign: "center",
+            padding: "80px 40px",
+            borderRadius: 40,
+            background: `linear-gradient(135deg, ${G}22 0%, transparent 100%)`,
+            border: `1px solid ${G}33`,
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: -100,
+              right: -100,
+              width: 300,
+              height: 300,
+              background: G,
+              filter: "blur(150px)",
+              opacity: 0.1,
+            }}
+          />
+          <h2
+            style={{
+              fontFamily: "'Bricolage Grotesque', sans-serif",
+              fontSize: 42,
+              marginBottom: 20,
+              letterSpacing: "-.02em",
+            }}
+          >
+            Uko Tayari <span style={{ color: G }}>Kuanza?</span>
+          </h2>
+          <p
+            style={{
+              maxWidth: 600,
+              margin: "0 auto 40px",
+              color: "rgba(255,255,255,.7)",
+              fontSize: 18,
+              lineHeight: 1.6,
+            }}
+          >
+            {c.priceDisclaimerFull}
+          </p>
+          <GoldBtn
+            onClick={() => window.open(getWhatsAppLink(c), "_blank")}
+            style={{ padding: "20px 56px", fontSize: 22, borderRadius: 20 }}
+          >
+            {ctaText} →
+          </GoldBtn>
+        </div>
+      </W>
+      <style>{`
+        .faq-item[open] { background: rgba(255,255,255,.04) !important; border-color: ${G}33 !important; }
+        .faq-item[open] .chevron { transform: rotate(90deg); color: ${G}; }
+        .faq-item summary::-webkit-details-marker { display: none; }
+        @media (max-width: 900px) {
+          .course-hero { grid-template-columns: 1fr !important; gap: 32px !important; }
+          .course-grid { grid-template-columns: 1fr !important; }
+          .testimonial-grid { grid-template-columns: 1fr !important; }
+          .faq-item summary { padding: 20px; font-size: 16px; }
+          .faq-item div { padding: 0 20px 20px; font-size: 15px; }
+        }
+      `}</style>
+    </section>
+  );
+}
+
+function ProductCard({ p }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = p.imageUrl && !imgError;
+
+  const getCTA = () => {
+    if (p.monetizationType === "affiliate")
+      return { text: "Nunua Sasa", url: p.affiliateLink };
+    if (p.monetizationType === "manual_lead")
+      return { text: "Ulizia WhatsApp", url: p.whatsappLink };
+    if (p.monetizationType === "hybrid")
+      return { text: "Nunua Sasa", url: p.affiliateLink || p.whatsappLink };
+    return { text: "Tazama Bidhaa", url: p.url };
+  };
+
+  const cta = getCTA();
+
+  return (
+    <TiltCard>
+      <div
+        style={{
+          aspectRatio: "16/9",
+          position: "relative",
+          background: "rgba(255,255,255,.03)",
+          overflow: "hidden",
+        }}
+      >
+        {hasImage && (
+          <img
+            loading="lazy"
+            src={p.imageUrl}
+            alt={p.name}
+            referrerPolicy="no-referrer"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              position: "absolute",
+              inset: 0,
+            }}
+            onError={() => setImgError(true)}
+          />
+        )}
+        {p.badge && (
+          <div
+            style={{
+              position: "absolute",
+              top: 14,
+              left: 14,
+              borderRadius: 999,
+              padding: "6px 11px",
+              border: "1px solid rgba(255,255,255,.08)",
+              background: "rgba(14,14,22,.75)",
+              color: G,
+              fontSize: 11,
+              fontWeight: 800,
+            }}
+          >
+            {p.badge}
+          </div>
+        )}
       </div>
+      <div style={{ padding: 18 }}>
+        <h3
+          style={{
+            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontSize: 20,
+            margin: "0 0 9px",
+            letterSpacing: "-.03em",
+          }}
+        >
+          {p.name}
+        </h3>
+        <p
+          style={{
+            color: "rgba(255,255,255,.68)",
+            fontSize: 14,
+            lineHeight: 1.75,
+            margin: "0 0 13px",
+          }}
+        >
+          {p.description}
+        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+            marginBottom: 14,
+          }}
+        >
+          <span style={{ color: G, fontSize: 16, fontWeight: 800 }}>
+            {p.price}
+          </span>
+          {p.oldPrice && (
+            <span
+              style={{
+                color: "rgba(255,255,255,.42)",
+                textDecoration: "line-through",
+                fontSize: 13,
+              }}
+            >
+              {p.oldPrice}
+            </span>
+          )}
+        </div>
+        {cta.url && (
+          <GoldBtn onClick={() => window.open(cta.url, "_blank")}>
+            {cta.text} →
+          </GoldBtn>
+        )}
+      </div>
+    </TiltCard>
+  );
+}
 
-      <style>{`@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
+function DukaPage() {
+  const { docs, loading } = useCollection("products", "createdAt");
+  const products = docs;
+
+  return (
+    <section style={{ padding: "26px 0" }}>
+      <W>
+        <SHead
+          title="Electronics"
+          hi="Duka"
+          copy="Curated affiliate products na verified deals kwa buyers wa Tanzania."
+        />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+            gap: 22,
+          }}
+        >
+          {loading ? (
+            [1, 2, 3].map((i) => <Skeleton key={i} />)
+          ) : products.length > 0 ? (
+            products.map((p, i) => <ProductCard key={p.id || i} p={p} />)
+          ) : (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                padding: 60,
+                textAlign: "center",
+                background: "rgba(255,255,255,.02)",
+                borderRadius: 24,
+                color: "rgba(255,255,255,.4)",
+              }}
+            >
+              Hakuna bidhaa kwenye Duka kwa sasa.
+            </div>
+          )}
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function WebsiteCard({ w }) {
+  const [iconError, setIconError] = useState(false);
+  const hasIcon = w.iconUrl && !iconError;
+
+  return (
+    <TiltCard>
+      <Thumb
+        bg={w.bg}
+        iconUrl={w.iconUrl}
+        name={w.name}
+        domain={w.meta}
+        imageUrl={w.imageUrl}
+        id={w.id}
+      />
+      <div
+        style={{
+          padding: 18,
+          display: "flex",
+          gap: 13,
+          alignItems: "flex-start",
+        }}
+      >
+        <div
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 13,
+            overflow: "hidden",
+            display: "grid",
+            placeItems: "center",
+            background: "rgba(245,166,35,.12)",
+            color: G,
+            fontSize: 22,
+            flexShrink: 0,
+          }}
+        >
+          {hasIcon && (
+            <img
+              loading="lazy"
+              src={w.iconUrl}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              referrerPolicy="no-referrer"
+              onError={() => setIconError(true)}
+            />
+          )}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <h3
+            style={{
+              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontSize: 18,
+              margin: "0 0 3px",
+              letterSpacing: "-.03em",
+            }}
+          >
+            {w.name}
+          </h3>
+          <div
+            style={{
+              fontSize: 12,
+              color: "rgba(255,255,255,.4)",
+              margin: "0 0 7px",
+            }}
+          >
+            {w.meta}
+          </div>
+          <p
+            style={{
+              color: "rgba(255,255,255,.68)",
+              fontSize: 14,
+              lineHeight: 1.7,
+              margin: "0 0 9px",
+            }}
+          >
+            {w.description || w.desc}
+          </p>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginBottom: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            {(w.tags || []).map((t, j) => (
+              <span
+                key={j}
+                style={{
+                  color: j === 0 ? G : "#75c5ff",
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+          <GoldBtn
+            onClick={() => window.open(w.url, "_blank")}
+            style={{ fontSize: 13, padding: "8px 14px" }}
+          >
+            Tembelea →
+          </GoldBtn>
+        </div>
+      </div>
+    </TiltCard>
+  );
+}
+
+function WebsitesPage() {
+  const { docs, loading } = useCollection("websites", "createdAt");
+  const websites = docs;
+
+  return (
+    <section style={{ padding: "26px 0" }}>
+      <W>
+        <SHead
+          title="Websites za Siri"
+          hi="🤫"
+          copy="Gundua websites za siri ambazo zinaweza kubadilisha namna unavyotumia internet kila siku. Kuanzia kuangalia movies bure 🎬, kujifunza lugha 🌍, kutumia AI tools 🛠, hadi kupata tools za kukusaidia kutatua matatizo mbalimbali 🔍 — hapa utapata gems ambazo watu wengi hawazijui. Jaribu moja tu, utashangaa."
+        />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+            gap: 22,
+          }}
+        >
+          {loading ? (
+            [1, 2, 3].map((i) => <Skeleton key={i} />)
+          ) : websites.length > 0 ? (
+            websites.map((w, i) => <WebsiteCard key={w.id || i} w={w} />)
+          ) : (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                padding: 60,
+                textAlign: "center",
+                background: "rgba(255,255,255,.02)",
+                borderRadius: 24,
+                color: "rgba(255,255,255,.4)",
+              }}
+            >
+              Hakuna Websites kwa sasa.
+            </div>
+          )}
+        </div>
+      </W>
+    </section>
+  );
+}
+
+// ── Prompt Lab Components ──────────────────────────────
+const generatePromptPDF = (p) => {
+  const doc = new jsPDF();
+  doc.setFillColor(20, 24, 35);
+  doc.rect(0, 0, 210, 297, "F");
+
+  doc.setFillColor(245, 166, 35);
+  doc.rect(0, 0, 210, 25, "F");
+
+  doc.setTextColor(17, 17, 17);
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.text("SWAHILITECH ELITE ACADEMY (STEA)", 105, 16, { align: "center" });
+
+  doc.setTextColor(245, 166, 35);
+  doc.setFontSize(24);
+  doc.text(p.title, 20, 45);
+
+  doc.setFontSize(12);
+  doc.setTextColor(180, 180, 180);
+  doc.text(`Category: ${p.category}`, 20, 53);
+
+  doc.setDrawColor(245, 166, 35);
+  doc.setLineWidth(0.5);
+  doc.line(20, 60, 190, 60);
+
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text("The Prompt:", 20, 75);
+
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(12);
+  doc.setTextColor(220, 220, 220);
+  const splitPrompt = doc.splitTextToSize(`"${p.prompt}"`, 170);
+  doc.text(splitPrompt, 20, 85);
+
+  let currentY = 85 + splitPrompt.length * 7;
+
+  if (p.howToUse) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(245, 166, 35);
+    doc.text("Step-by-Step Guide:", 20, currentY + 15);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(200, 200, 200);
+    const splitHow = doc.splitTextToSize(p.howToUse, 170);
+    doc.text(splitHow, 20, currentY + 25);
+  }
+
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text("© 2026 SwahiliTech Elite Academy - Tanzania's Tech Hub", 105, 285, {
+    align: "center",
+  });
+
+  doc.save(`STEA_Prompt_${p.title.replace(/\s+/g, "_")}.pdf`);
+};
+
+function ToolLink({ tool }) {
+  const [iconError, setIconError] = useState(false);
+  const hasIcon = tool.iconUrl && !iconError;
+  let hostname;
+  try {
+    hostname = new URL(tool.toolUrl).hostname.replace("www.", "");
+  } catch {
+    hostname = "Tool";
+  }
+
+  return (
+    <a
+      href={tool.toolUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 16px",
+        borderRadius: 12,
+        background: "rgba(255,255,255,.05)",
+        border: "1px solid rgba(255,255,255,.1)",
+        textDecoration: "none",
+        color: "#fff",
+        fontSize: 13,
+        fontWeight: 700,
+        transition: ".2s",
+      }}
+      onMouseEnter={(ev) =>
+        (ev.currentTarget.style.background = "rgba(255,255,255,.1)")
+      }
+      onMouseLeave={(ev) =>
+        (ev.currentTarget.style.background = "rgba(255,255,255,.05)")
+      }
+    >
+      {hasIcon ? (
+        <img
+          loading="lazy"
+          src={tool.iconUrl}
+          style={{ width: 20, height: 20, borderRadius: 4 }}
+          referrerPolicy="no-referrer"
+          onError={() => setIconError(true)}
+        />
+      ) : (
+        "🔗"
+      )}
+      {hostname}
+    </a>
+  );
+}
+
+function PromptModal({ prompt: p, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const [imgError, setImgError] = useState(false);
+  const hasImage = p.imageUrl && !imgError;
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  });
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(p.prompt);
+    setCopied(true);
+    confetti({
+      particleCount: 40,
+      spread: 60,
+      origin: { y: 0.7 },
+      colors: [G, G2],
+    });
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 800,
+        background: "rgba(4,5,9,.94)",
+        backdropFilter: "blur(20px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        style={{
+          width: "min(900px, 100%)",
+          borderRadius: 32,
+          border: "1px solid rgba(255,255,255,.12)",
+          background: "rgba(15,18,28,.98)",
+          boxShadow: "0 40px 100px rgba(0,0,0,.6)",
+          overflow: "hidden",
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: hasImage ? "row" : "column",
+        }}
+      >
+        {hasImage && (
+          <div
+            style={{
+              width: "clamp(200px, 35%, 320px)",
+              flexShrink: 0,
+              background: "rgba(255,255,255,.05)",
+              position: "relative",
+            }}
+          >
+            <img
+              loading="lazy"
+              src={p.imageUrl}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              referrerPolicy="no-referrer"
+              alt={p.title}
+              onError={() => setImgError(true)}
+            />
+          </div>
+        )}
+        <div style={{ padding: 32, flex: 1, overflowY: "auto" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              marginBottom: 24,
+            }}
+          >
+            <div>
+              <span
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 99,
+                  fontSize: 11,
+                  fontWeight: 900,
+                  ...BS.gold,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  marginBottom: 12,
+                  display: "inline-block",
+                }}
+              >
+                {p.category}
+              </span>
+              <h2
+                style={{
+                  fontFamily: "'Bricolage Grotesque',sans-serif",
+                  fontSize: 32,
+                  margin: 0,
+                  letterSpacing: "-.04em",
+                }}
+              >
+                {p.title}
+              </h2>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,.1)",
+                background: "rgba(255,255,255,.05)",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div
+            style={{
+              background: "rgba(0,0,0,.3)",
+              border: "1px solid rgba(255,255,255,.08)",
+              borderRadius: 20,
+              padding: 24,
+              marginBottom: 28,
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 800,
+                color: G,
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                marginBottom: 12,
+              }}
+            >
+              The Prompt
+            </div>
+            <p
+              style={{
+                color: "#fff",
+                fontSize: 16,
+                lineHeight: 1.7,
+                margin: 0,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {p.prompt}
+            </p>
+          </div>
+
+          {p.howToUse && (
+            <div style={{ marginBottom: 32 }}>
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 800,
+                  color: G,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  marginBottom: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Zap size={18} /> Jinsi ya Kutumia (Step-by-Step)
+              </div>
+              <div
+                style={{
+                  color: "rgba(255,255,255,.7)",
+                  fontSize: 15,
+                  lineHeight: 1.8,
+                  whiteSpace: "pre-line",
+                  paddingLeft: 12,
+                  borderLeft: `2px solid ${G}33`,
+                }}
+              >
+                {p.howToUse}
+              </div>
+            </div>
+          )}
+
+          {p.tools && p.tools.length > 0 && (
+            <div style={{ marginBottom: 32 }}>
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 800,
+                  color: G,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  marginBottom: 16,
+                }}
+              >
+                Tools to Use
+              </div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {p.tools.map((tool, i) => (
+                  <ToolLink key={i} tool={tool} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+          >
+            <button
+              onClick={handleCopy}
+              style={{
+                height: 54,
+                borderRadius: 16,
+                border: "none",
+                background: copied
+                  ? "#00C48C"
+                  : `linear-gradient(135deg,${G},${G2})`,
+                color: "#111",
+                fontWeight: 900,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                transition: ".3s",
+              }}
+            >
+              {copied ? <Check size={20} /> : <Copy size={20} />}{" "}
+              {copied ? "Imenakiliwa!" : "Nakili Prompt"}
+            </button>
+            <button
+              onClick={() => generatePromptPDF(p)}
+              style={{
+                height: 54,
+                borderRadius: 16,
+                border: "1px solid rgba(255,255,255,.1)",
+                background: "rgba(255,255,255,.05)",
+                color: "#fff",
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+              }}
+            >
+              <Download size={20} /> Download PDF
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </div>
+  );
+}
+
+function ToolIcon({ tool }) {
+  const [iconError, setIconError] = useState(false);
+  const hasIcon = tool.iconUrl && !iconError;
+  return (
+    <div
+      title={tool.toolUrl}
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        background: "rgba(255,255,255,.05)",
+        border: "1px solid rgba(255,255,255,.1)",
+        display: "grid",
+        placeItems: "center",
+        overflow: "hidden",
+      }}
+    >
+      {hasIcon ? (
+        <img
+          loading="lazy"
+          src={tool.iconUrl}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          referrerPolicy="no-referrer"
+          onError={() => setIconError(true)}
+        />
+      ) : (
+        <span style={{ fontSize: 12 }}>🔗</span>
+      )}
+    </div>
+  );
+}
+
+function PromptCard({ p, setSel, handleCopy, copiedId }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = p.imageUrl && !imgError;
+
+  return (
+    <TiltCard
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          aspectRatio: "16/9",
+          background: "rgba(255,255,255,.03)",
+          borderBottom: "1px solid rgba(255,255,255,.07)",
+          overflow: "hidden",
+        }}
+      >
+        {hasImage && (
+          <img
+            loading="lazy"
+            src={p.imageUrl}
+            alt={p.title}
+            referrerPolicy="no-referrer"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              position: "absolute",
+              inset: 0,
+            }}
+            onError={() => setImgError(true)}
+          />
+        )}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(to bottom, transparent, rgba(0,0,0,.4))",
+          }}
+        />
+        <div style={{ position: "absolute", top: 14, left: 14, zIndex: 2 }}>
+          <span
+            style={{
+              padding: "5px 12px",
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 900,
+              ...BS.gold,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+            }}
+          >
+            {p.category}
+          </span>
+        </div>
+      </div>
+      <div
+        style={{
+          padding: 24,
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+        <h3
+          style={{
+            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontSize: 20,
+            margin: "0 0 12px",
+            letterSpacing: "-.02em",
+            lineHeight: 1.3,
+          }}
+        >
+          {p.title}
+        </h3>
+
+        <div
+          style={{
+            flex: 1,
+            background: "rgba(0,0,0,.2)",
+            borderRadius: 14,
+            padding: 16,
+            marginBottom: 16,
+            border: "1px solid rgba(255,255,255,.04)",
+          }}
+        >
+          <p
+            style={{
+              color: "rgba(255,255,255,.6)",
+              fontSize: 14,
+              lineHeight: 1.6,
+              margin: 0,
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            &quot;{p.prompt}&quot;
+          </p>
+        </div>
+
+        {p.tools && p.tools.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              marginBottom: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            {p.tools.map((tool, i) => (
+              <ToolIcon key={i} tool={tool} />
+            ))}
+          </div>
+        )}
+
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+        >
+          <button
+            onClick={() => handleCopy(p.prompt, p.id)}
+            style={{
+              height: 44,
+              borderRadius: 12,
+              border: "none",
+              background:
+                copiedId === p.id ? "#00C48C" : "rgba(255,255,255,.08)",
+              color: copiedId === p.id ? "#000" : "#fff",
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              transition: ".2s",
+            }}
+          >
+            {copiedId === p.id ? <Check size={14} /> : <Copy size={14} />}{" "}
+            {copiedId === p.id ? "Copied" : "Copy"}
+          </button>
+          <button
+            onClick={() => setSel(p)}
+            style={{
+              height: 44,
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,.1)",
+              background: "rgba(255,255,255,.04)",
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <Maximize2 size={14} /> Expand
+          </button>
+        </div>
+        <button
+          onClick={() => generatePromptPDF(p)}
+          style={{
+            width: "100%",
+            marginTop: 10,
+            height: 40,
+            borderRadius: 12,
+            border: "none",
+            background: "transparent",
+            color: "rgba(255,255,255,.4)",
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = G)}
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.color = "rgba(255,255,255,.4)")
+          }
+        >
+          <Download size={14} /> Download PDF Guide
+        </button>
+      </div>
+    </TiltCard>
+  );
+}
+
+function PromptLabPage() {
+  const { docs, loading } = useCollection("prompts", "createdAt");
+  const prompts = docs;
+  const [sel, setSel] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+
+  const handleCopy = (txt, id) => {
+    navigator.clipboard.writeText(txt);
+    setCopiedId(id);
+    confetti({
+      particleCount: 30,
+      spread: 50,
+      origin: { y: 0.8 },
+      colors: [G, G2],
+    });
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  return (
+    <section style={{ padding: "40px 0" }}>
+      <W>
+        {sel && <PromptModal prompt={sel} onClose={() => setSel(null)} />}
+        <SHead
+          title="Prompt"
+          hi="Lab"
+          copy="Maktaba ya AI Prompts bora zilizojaribiwa kwa Kiswahili. Copy na u-paste kwenye ChatGPT, Gemini au Claude."
+        />
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+            gap: 24,
+          }}
+        >
+          {loading ? (
+            [1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} type="prompt" />)
+          ) : prompts.length > 0 ? (
+            prompts.map((p) => (
+              <PromptCard
+                key={p.id}
+                p={p}
+                setSel={setSel}
+                handleCopy={handleCopy}
+                copiedId={copiedId}
+              />
+            ))
+          ) : (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                padding: 60,
+                textAlign: "center",
+                background: "rgba(255,255,255,.02)",
+                borderRadius: 24,
+                color: "rgba(255,255,255,.4)",
+              }}
+            >
+              Hakuna Prompts kwa sasa.
+            </div>
+          )}
+        </div>
+      </W>
+    </section>
+  );
+}
+
+// ── Support & Newsletter ──────────────────────────────
+// eslint-disable-next-line no-unused-vars
+function SupportForm() {
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    topic: "General",
+    message: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const db = getFirebaseDb();
+      if (db) {
+        await setDoc(doc(db, "support_messages", Date.now().toString()), {
+          ...form,
+          createdAt: serverTimestamp(),
+        });
+      }
+      setSent(true);
+      confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+    } catch (err) {
+      console.error(err);
+      alert("Samahani, imeshindikana kutuma ujumbe.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (sent)
+    return (
+      <div style={{ textAlign: "center", padding: "40px 20px" }}>
+        <div
+          style={{
+            width: 64,
+            height: 64,
+            borderRadius: "50%",
+            background: "rgba(0,196,140,.1)",
+            color: "#00C48C",
+            display: "grid",
+            placeItems: "center",
+            margin: "0 auto 20px",
+          }}
+        >
+          <Check size={32} />
+        </div>
+        <h3 style={{ fontSize: 24, marginBottom: 10 }}>Asante!</h3>
+        <p style={{ color: "rgba(255,255,255,.6)" }}>
+          Ujumbe wako umepokelewa. Tutajibu hivi karibuni.
+        </p>
+        <button
+          onClick={() => setSent(false)}
+          style={{
+            marginTop: 20,
+            color: G,
+            background: "none",
+            border: "none",
+            fontWeight: 800,
+            cursor: "pointer",
+          }}
+        >
+          Tuma ujumbe mwingine
+        </button>
+      </div>
+    );
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <input
+          required
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="Jina lako"
+          style={{
+            height: 50,
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,.1)",
+            background: "rgba(255,255,255,.05)",
+            color: "#fff",
+            padding: "0 16px",
+            outline: "none",
+          }}
+        />
+        <input
+          required
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          placeholder="Email yako"
+          style={{
+            height: 50,
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,.1)",
+            background: "rgba(255,255,255,.05)",
+            color: "#fff",
+            padding: "0 16px",
+            outline: "none",
+          }}
+        />
+      </div>
+      <select
+        value={form.topic}
+        onChange={(e) => setForm({ ...form, topic: e.target.value })}
+        style={{
+          height: 50,
+          borderRadius: 14,
+          border: "1px solid rgba(255,255,255,.1)",
+          background: "rgba(255,255,255,.05)",
+          color: "#fff",
+          padding: "0 16px",
+          outline: "none",
+        }}
+      >
+        <option value="General">General Inquiry</option>
+        <option value="Courses">Courses Support</option>
+        <option value="Deals">Deals/Affiliate</option>
+        <option value="Technical">Technical Issue</option>
+      </select>
+      <textarea
+        required
+        value={form.message}
+        onChange={(e) => setForm({ ...form, message: e.target.value })}
+        placeholder="Ujumbe wako..."
+        style={{
+          height: 120,
+          borderRadius: 14,
+          border: "1px solid rgba(255,255,255,.1)",
+          background: "rgba(255,255,255,.05)",
+          color: "#fff",
+          padding: "16px",
+          outline: "none",
+          resize: "none",
+        }}
+      />
+      <button
+        disabled={loading}
+        style={{
+          height: 54,
+          borderRadius: 16,
+          border: "none",
+          background: `linear-gradient(135deg,${G},${G2})`,
+          color: "#111",
+          fontWeight: 900,
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+        }}
+      >
+        {loading ? (
+          "Inatuma..."
+        ) : (
+          <>
+            <Send size={18} /> Tuma Ujumbe
+          </>
+        )}
+      </button>
+    </form>
+  );
+}
+
+function NewsletterForm() {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.8 }}
+      style={{
+        padding: "100px 0",
+        background: "#05060a",
+        borderTop: "1px solid rgba(255,255,255,0.05)",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* Subtle Glow */}
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: "80%",
+          height: "80%",
+          background:
+            "radial-gradient(circle, rgba(245,166,35,0.06) 0%, transparent 70%)",
+          filter: "blur(80px)",
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
+
+      <W>
+        <div
+          style={{
+            position: "relative",
+            zIndex: 1,
+            maxWidth: 800,
+            margin: "0 auto",
+            textAlign: "center",
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "'Bricolage Grotesque', sans-serif",
+              fontSize: "clamp(32px, 5vw, 48px)",
+              marginBottom: 16,
+              letterSpacing: "-0.03em",
+              color: "#fff",
+            }}
+          >
+            Jiunge na <span style={{ color: G }}>STEA Newsletter</span>
+          </h2>
+          <p
+            style={{
+              fontSize: "clamp(16px, 2vw, 18px)",
+              color: "rgba(255,255,255,0.7)",
+              marginBottom: 32,
+              lineHeight: 1.6,
+            }}
+          >
+            Pata tech tips, courses na updates mpya kila siku
+          </p>
+
+          <div
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              borderRadius: 24,
+              padding: "12px",
+              border: "1px solid rgba(255,255,255,0.08)",
+              boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+              overflow: "hidden",
+              display: "flex",
+              justifyContent: "center",
+            }}
+          >
+            <iframe
+              width="540"
+              height="305"
+              src="https://8a2374dd.sibforms.com/serve/MUIFAGZR8_KuVimiiaB4VRbn_jum3slVhVnj0whoh9aEwMBVNYx41VMz5boVmclj3oBfyTIx0eWvOtqoxrzUwuMs_WhmpapKONkACfI3eivQYqjywjxuCK-svny75AYLg3jmz8HZimADld83jxEQBzcucbx3sCeoVdk7yK-2hrL4nS7pbD-N8X7Rv03HiVnFeGUUQUCKIh5RNzbmtg=="
+              frameBorder="0"
+              scrolling="auto"
+              allowFullScreen
+              style={{
+                display: "block",
+                maxWidth: "100%",
+                borderRadius: 12,
+              }}
+            ></iframe>
+          </div>
+
+          <p
+            style={{
+              marginTop: 20,
+              fontSize: 13,
+              color: "rgba(255,255,255,0.4)",
+              fontWeight: 500,
+            }}
+          >
+            Hakuna spam. Unaweza kujiondoa muda wowote.
+          </p>
+        </div>
+      </W>
+    </motion.section>
+  );
+}
+
+
+
+
+
+
+
+// ── Legal & Trust Pages ──────────────────────────────
+function CreatorSection({ goPage, siteSettings }) {
+  const [imgError, setImgError] = useState(false);
+  const data = siteSettings?.about_creator || {
+    fullName: "Isaya Hans Masika",
+    title: "Founder & Developer",
+    shortBio: "Tanzanian tech creator na web developer.",
+    fullBio: "Isaya Hans Masika ni Tanzanian tech creator na web developer, asili yake ikiwa ni mkoani Mbeya na kwa sasa anaishi nchini China. Anashikilia Shahada ya Uzamili (Bachelor’s Degree) katika Computer Science kutoka Guilin University of Electronic Technology, China. Safari yake ya elimu ilianzia Wazo Hill Primary School, akaendelea Mbezi Beach Secondary School, na baadaye Lugufu Boys Secondary School. Isaya ana shauku kubwa na teknolojia, AI, na kujenga majukwaa ya kidijitali yanayosaidia watu kupata maarifa kwa lugha ya Kiswahili.",
+    imageUrl: "/stea-icon.jpg",
+    imageAlt: "Isaya Hans Masika",
+    contactText: "Contact Creator"
+  };
+
+  return (
+    <section style={{ padding: "100px 0", position: "relative", overflow: "hidden" }}>
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%,-50%)",
+          width: "80%",
+          height: "80%",
+          background: `radial-gradient(circle, ${G}15, transparent 70%)`,
+          filter: "blur(80px)",
+          zIndex: -1,
+        }}
+      />
+      <W>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: 60,
+            alignItems: "center",
+          }}
+        >
+          <motion.div
+            initial={{ opacity: 0, x: -30 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+          >
+            <div
+              style={{
+                display: "inline-block",
+                padding: "6px 14px",
+                borderRadius: 99,
+                background: "rgba(255,209,124,0.1)",
+                color: G,
+                fontSize: 12,
+                fontWeight: 900,
+                textTransform: "uppercase",
+                letterSpacing: 1.5,
+                marginBottom: 20,
+              }}
+            >
+              The Visionary
+            </div>
+            <h2
+              style={{
+                fontSize: "clamp(32px, 5vw, 48px)",
+                fontWeight: 900,
+                lineHeight: 1.1,
+                marginBottom: 24,
+                color: "#fff",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              About the <span style={{ color: G }}>Creator</span>
+            </h2>
+            <div
+              style={{
+                fontSize: 18,
+                lineHeight: 1.8,
+                color: "rgba(255,255,255,0.7)",
+                display: "grid",
+                gap: 20,
+              }}
+            >
+              <p>
+                <strong style={{ color: "#fff", fontSize: 20 }}>{data.fullName}</strong> {data.shortBio}
+              </p>
+              <div style={{ whiteSpace: "pre-wrap" }}>
+                {data.fullBio}
+              </div>
+              {data.education && (
+                <p style={{ fontSize: 16 }}>
+                  🎓 <strong>Education:</strong> {data.education}
+                </p>
+              )}
+              {data.career && (
+                <p style={{ fontSize: 16 }}>
+                  💼 <strong>Career:</strong> {data.career}
+                </p>
+              )}
+              {data.hobbies && (
+                <p style={{ fontSize: 16 }}>
+                  🎨 <strong>Interests:</strong> {data.hobbies}
+                </p>
+              )}
+            </div>
+            <div style={{ marginTop: 40 }}>
+              <PushBtn onClick={() => {
+                if (data.contactLink) window.open(data.contactLink, "_blank");
+                else goPage("contact");
+              }}>
+                ✉️ {data.contactText || "Contact Creator"}
+              </PushBtn>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+            style={{ position: "relative" }}
+          >
+            {/* Avatar Area */}
+            <div
+              style={{
+                width: "100%",
+                maxWidth: 400,
+                margin: "0 auto",
+                position: "relative",
+              }}
+            >
+              <div
+                style={{
+                  aspectRatio: "1/1",
+                  borderRadius: 40,
+                  overflow: "hidden",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.03)",
+                  display: "grid",
+                  placeItems: "center",
+                  position: "relative",
+                  boxShadow: `0 20px 50px rgba(0,0,0,0.4), 0 0 20px ${G}10`,
+                }}
+              >
+                {!imgError && data.imageUrl ? (
+                  <img
+                    src={data.imageUrl}
+                    alt={data.imageAlt || data.fullName}
+                    referrerPolicy="no-referrer"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      opacity: 0.9,
+                    }}
+                    onError={() => setImgError(true)}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "grid",
+                      placeItems: "center",
+                      background: `linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))`,
+                    }}
+                  >
+                    <User size={120} color={G} strokeWidth={1} opacity={0.3} />
+                  </div>
+                )}
+                
+                {/* Gradient Overlay */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "linear-gradient(to top, #0a0b10 0%, transparent 40%)",
+                    pointerEvents: "none",
+                  }}
+                />
+                
+                {/* Info Overlay */}
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: 30,
+                    left: 30,
+                    right: 30,
+                    zIndex: 2,
+                  }}
+                >
+                  <div style={{ fontSize: 24, fontWeight: 900, color: "#fff", textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>
+                    {data.fullName}
+                  </div>
+                  <div style={{ fontSize: 14, color: G, fontWeight: 700, letterSpacing: 0.5 }}>
+                    {data.title}
+                  </div>
+                </div>
+              </div>
+
+              {/* Decorative Rings */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: -30,
+                  right: -30,
+                  width: 140,
+                  height: 140,
+                  borderRadius: "50%",
+                  border: `1px dashed ${G}30`,
+                  animation: "spin 30s linear infinite",
+                  zIndex: -1,
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: -20,
+                  left: -20,
+                  width: 80,
+                  height: 80,
+                  borderRadius: "50%",
+                  background: `radial-gradient(circle, ${G}20, transparent)`,
+                  filter: "blur(20px)",
+                  zIndex: -1,
+                }}
+              />
+            </div>
+          </motion.div>
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function AboutPage({ goPage, siteSettings }) {
+  const data = siteSettings?.about_us || {
+    title: "Kuhusu",
+    hi: "STEA",
+    copy: "SwahiliTech Elite Academy (STEA) ni jukwaa namba moja la teknolojia kwa lugha ya Kiswahili.",
+    fullDesc: "SwahiliTech Elite Academy (STEA) ni jukwaa la kisasa la teknolojia linalolenga kuwapa Watanzania na Waafrika Mashariki ujuzi wa vitendo. Tunaamini teknolojia ni haki ya kila mtu. Tunatoa elimu rahisi kwa Kiswahili ili uweze kujifunza, kubuni, na kujipatia kipato kupitia ujuzi wa kidijitali.",
+    mission: "Kutoa elimu na fursa za tech zinazobadilisha maisha.",
+    vision: "Kuwa jukwaa namba moja la tech kwa Kiswahili Afrika."
+  };
+
+  return (
+    <div style={{ background: "#0a0b10" }}>
+      <section style={{ padding: "100px 0 60px" }}>
+        <W>
+          <SHead
+            title={data.title || "Kuhusu"}
+            hi={data.hi || "STEA"}
+            copy={data.copy || data.shortDesc || "SwahiliTech Elite Academy (STEA) ni jukwaa namba moja la teknolojia kwa lugha ya Kiswahili."}
+          />
+          <div
+            style={{
+              maxWidth: 800,
+              margin: "40px auto 0",
+              color: "rgba(255,255,255,.7)",
+              lineHeight: 1.9,
+              fontSize: 18,
+              display: "grid",
+              gap: 24,
+            }}
+          >
+            <div style={{ whiteSpace: "pre-wrap" }}>
+              {data.fullDesc}
+            </div>
+            
+            <div style={{ 
+              background: "rgba(255,255,255,0.03)", 
+              padding: 40, 
+              borderRadius: 32, 
+              border: "1px solid rgba(255,255,255,0.06)",
+              marginTop: 40
+            }}>
+              <h3 style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginBottom: 24 }}>
+                Tunachotoa
+              </h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
+                {[
+                  "Kozi za Tech na AI",
+                  "Tech Tips na Updates",
+                  "Prompt Lab",
+                  "Deals na Duka la Tech",
+                  "Websites za Earning"
+                ].map((item, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: G }} />
+                    <span style={{ fontWeight: 600 }}>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 40, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 32 }}>
+              <div>
+                <h3 style={{ color: G, fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Vision</h3>
+                <p style={{ fontSize: 20, color: "#fff", fontWeight: 700 }}>{data.vision}</p>
+              </div>
+              <div>
+                <h3 style={{ color: G, fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Mission</h3>
+                <p style={{ fontSize: 20, color: "#fff", fontWeight: 700 }}>{data.mission}</p>
+              </div>
+            </div>
+
+            {data.btnText && (
+              <div style={{ textAlign: "center", marginTop: 40 }}>
+                <PushBtn onClick={() => {
+                  if (data.btnLink?.startsWith("http")) window.open(data.btnLink, "_blank");
+                  else goPage(data.btnLink || "home");
+                }}>
+                  {data.btnText}
+                </PushBtn>
+              </div>
+            )}
+          </div>
+        </W>
+      </section>
+    </div>
+  );
+}
+
+function CreatorPage({ goPage, siteSettings }) {
+  return (
+    <div style={{ padding: "40px 0" }}>
+      <CreatorSection goPage={goPage} siteSettings={siteSettings} />
+    </div>
+  );
+}
+
+function ContactPage({ siteSettings }) {
+  const data = siteSettings?.contact_info || {
+    title: "Wasiliana",
+    hi: "Nasi",
+    copy: "Je, una swali au unahitaji msaada? Tupo hapa kukusaidia.",
+    email: "swahilitecheliteacademy@gmail.com",
+    whatsapp: "8619715852043"
+  };
+
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead
+          title={data.title || "Wasiliana"}
+          hi={data.hi || "Nasi"}
+          copy={data.copy || "Je, una swali au unahitaji msaada? Tupo hapa kukusaidia."}
+        />
+        <div style={{ display: "grid", gap: 32, marginTop: 40 }}>
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <div
+                style={{
+                  color: G,
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  fontSize: 12,
+                  letterSpacing: 1,
+                  marginBottom: 8,
+                }}
+              >
+                Email
+              </div>
+              <div style={{ fontSize: 18, color: "#fff" }}>
+                {data.email}
+              </div>
+            </div>
+            <div>
+              <div
+                style={{
+                  color: G,
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  fontSize: 12,
+                  letterSpacing: 1,
+                  marginBottom: 8,
+                }}
+              >
+                WhatsApp
+              </div>
+              <a
+                href={`https://wa.me/${data.whatsapp}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontSize: 18,
+                  color: "#25d366",
+                  textDecoration: "none",
+                }}
+              >
+                Wasiliana nasi hapa
+              </a>
+            </div>
+          </div>
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function FAQPage({ faqs: remoteFaqs }) {
+  const [openIndex, setOpenIndex] = useState(null);
+  const defaultFaqs = [
+    {
+      q: "STEA ni nini?",
+      a: "Ni jukwaa la elimu ya teknolojia na fursa za kidijitali kwa Kiswahili.",
+    },
+    {
+      q: "Nani anaweza kujiunga?",
+      a: "Kila mtu! Vijana, wajasiriamali, na yeyote anayetaka kujifunza tech.",
+    },
+    {
+      q: "Kozi zenu zinafundishwa kwa lugha gani?",
+      a: "Tunafundisha kwa Kiswahili rahisi ili kila mtu aelewe.",
+    },
+    {
+      q: "Je, ninaweza kupata kipato kupitia STEA?",
+      a: "Ndiyo, tunakupa ujuzi na fursa za kuanza kujipatia kipato mtandaoni.",
+    },
+    {
+      q: "Je, huduma zenu ni za bure?",
+      a: "Tuna huduma za bure na kozi za kulipia ili kukuza ujuzi wako kwa kina.",
+    },
+    {
+      q: "Ninawezaje kupata msaada?",
+      a: "Wasiliana nasi kupitia WhatsApp au Email wakati wowote.",
+    },
+  ];
+
+  const displayFaqs = remoteFaqs?.length > 0 ? remoteFaqs : defaultFaqs;
+
+  return (
+    <div style={{ background: "#0a0b10", minHeight: "100vh", padding: "100px 0" }}>
+      <W>
+        <SHead
+          title="Maswali"
+          hi="Yanayoulizwa"
+          copy="Pata majibu ya maswali yanayoulizwa mara kwa mara kuhusu STEA."
+        />
+        <div style={{ maxWidth: 800, margin: "60px auto 0", display: "grid", gap: 16 }}>
+          {displayFaqs.map((f, i) => (
+            <div
+              key={i}
+              style={{
+                borderRadius: 20,
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                overflow: "hidden",
+                transition: "0.3s"
+              }}
+            >
+              <button
+                onClick={() => setOpenIndex(openIndex === i ? null : i)}
+                style={{
+                  width: "100%",
+                  padding: "24px 30px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  color: "#fff"
+                }}
+              >
+                <span style={{ fontSize: 18, fontWeight: 700 }}>{f.question || f.q}</span>
+                <motion.div
+                  animate={{ rotate: openIndex === i ? 180 : 0 }}
+                  style={{ color: G }}
+                >
+                  <HelpCircle size={24} />
+                </motion.div>
+              </button>
+              <AnimatePresence>
+                {openIndex === i && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <div style={{ padding: "0 30px 30px", color: "rgba(255,255,255,0.6)", lineHeight: 1.8, fontSize: 16 }}>
+                      {f.answer || f.a}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </div>
+      </W>
+    </div>
+  );
+}
+
+function PrivacyPage() {
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead title="Privacy" hi="Policy" copy="Sera yetu ya faragha." />
+        <div
+          style={{
+            maxWidth: 800,
+            margin: "0 auto",
+            color: "rgba(255,255,255,.7)",
+            lineHeight: 1.8,
+          }}
+        >
+          <p>
+            Tunathamini faragha yako. STEA inakusanya taarifa muhimu tu ili
+            kuboresha huduma zetu. Hatutashiriki taarifa zako na watu wengine
+            bila idhini yako. Data yako iko salama nasi.
+          </p>
+        </div>
+      </W>
+    </section>
+  );
+}
+
+function TermsPage() {
+  return (
+    <section style={{ padding: "60px 0" }}>
+      <W>
+        <SHead
+          title="Terms"
+          hi="of Use"
+          copy="Masharti ya matumizi ya jukwaa la STEA."
+        />
+        <div
+          style={{
+            maxWidth: 800,
+            margin: "0 auto",
+            color: "rgba(255,255,255,.7)",
+            lineHeight: 1.8,
+          }}
+        >
+          <p>
+            Kwa kutumia STEA, unakubaliana na masharti yetu. Tunajitahidi kutoa
+            elimu bora, lakini tunatarajia watumiaji wetu watumie jukwaa hili
+            kwa heshima na kwa malengo ya kimaendeleo. Hatuhusiki na matumizi
+            mabaya ya ujuzi unaopata.
+          </p>
+        </div>
+      </W>
+    </section>
+  );
+}
+const getWhatsAppLink = (course) => {
+  const number = course.adminWhatsAppNumber || "8619715852043";
+  const price = course.newPrice || course.price || "Bure";
+  const defaultMsg = `Habari STEA, nataka kujiunga na kozi ya: ${course.title} yenye bei ya ${price}.\n\nNaomba maelekezo ya jinsi ya kuanza na utaratibu wa malipo.`;
+  const msg = course.customWhatsAppMessageTemplate || defaultMsg;
+  return `https://wa.me/${number.replace(/\+/g, "")}?text=${encodeURIComponent(msg)}`;
+};
+
+const CourseCard = ({ item, goPage }) => {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = item.imageUrl && !imgError;
+  return (
+    <TiltCard style={{ overflow: "hidden" }}>
+      <div
+        onClick={() => goPage && goPage("course-detail", item)}
+        style={{ cursor: "pointer" }}
+      >
+        <div
+          style={{
+            position: "relative",
+            aspectRatio: "16/9",
+            overflow: "hidden",
+            background: "rgba(255,255,255,.05)",
+          }}
+        >
+          {hasImage ? (
+            <img
+              src={item.imageUrl}
+              alt={item.title}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center",
+              }}
+              referrerPolicy="no-referrer"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "grid",
+                placeItems: "center",
+                opacity: 0.1,
+              }}
+            >
+              <BookOpen size={64} />
+            </div>
+          )}
+          {item.badge && (
+            <div
+              style={{
+                position: "absolute",
+                top: 12,
+                left: 12,
+                background: G,
+                color: "#000",
+                padding: "4px 10px",
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 900,
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                zIndex: 2,
+              }}
+            >
+              {item.badge}
+            </div>
+          )}
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              background: "rgba(0,0,0,.6)",
+              backdropFilter: "blur(4px)",
+              padding: "4px 10px",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 700,
+              color: "#fff",
+              border: "1px solid rgba(255,255,255,.2)",
+              zIndex: 2,
+            }}
+          >
+            {item.level || "All Levels"}
+          </div>
+        </div>
+        <div style={{ padding: 20, position: "relative", marginTop: -20 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              color: G,
+              fontSize: 12,
+              fontWeight: 700,
+              marginBottom: 8,
+            }}
+          >
+            <Star size={14} fill={G} />
+            <span>{item.rating || "5.0"}</span>
+            <span style={{ opacity: 0.5 }}>•</span>
+            <span>{item.studentsCount || "100+"} Students</span>
+          </div>
+          <h4
+            style={{
+              fontSize: 18,
+              fontWeight: 800,
+              marginBottom: 8,
+              lineHeight: 1.4,
+            }}
+          >
+            {item.title}
+          </h4>
+          <p
+            style={{
+              fontSize: 14,
+              color: "rgba(255,255,255,.5)",
+              marginBottom: 16,
+              lineHeight: 1.6,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {item.desc}
+          </p>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingTop: 16,
+              borderTop: "1px solid rgba(255,255,255,0.05)",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {item.oldPrice && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "rgba(255,255,255,0.4)",
+                    textDecoration: "line-through",
+                  }}
+                >
+                  {item.oldPrice}
+                </span>
+              )}
+              <span style={{ fontSize: 20, fontWeight: 900, color: G }}>
+                {item.price}
+              </span>
+            </div>
+            <button
+              onClick={() => goPage && goPage("course-detail", item)}
+              style={{
+                background: `linear-gradient(135deg, ${G}, ${G2})`,
+                color: "#111",
+                border: "none",
+                padding: "10px 18px",
+                borderRadius: 12,
+                fontWeight: 800,
+                fontSize: 13,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "0.3s",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.transform = "translateX(4px)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.transform = "translateX(0)")
+              }
+            >
+              Jiunge Sasa <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </TiltCard>
+  );
+};
+
+function FeaturedDeal({ featuredDeal, goPage }) {
+  const [imgError, setImgError] = useState(false);
+  const hasImage = featuredDeal.imageUrl && !imgError;
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 16 }}>
+      <h2
+        style={{
+          fontSize: 18,
+          color: "rgba(255,255,255,.5)",
+          textTransform: "uppercase",
+          letterSpacing: 2,
+        }}
+      >
+        Hot Deal
+      </h2>
+      <TiltCard
+        onClick={() => goPage && goPage("deal-detail", featuredDeal)}
+        style={{
+          flex: 1,
+          display: "flex",
+          overflow: "hidden",
+          background:
+            "linear-gradient(135deg,rgba(245,166,35,.1),rgba(255,255,255,.02))",
+          cursor: "pointer"
+        }}
+      >
+        <div style={{ display: "flex", width: "100%" }}>
+          <div
+            style={{
+              width: "40%",
+              position: "relative",
+              background: "rgba(255,255,255,.05)",
+            }}
+          >
+            {hasImage && (
+              <img
+                loading="lazy"
+                src={featuredDeal.imageUrl}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  position: "absolute",
+                  inset: 0,
+                }}
+                referrerPolicy="no-referrer"
+                onError={() => setImgError(true)}
+              />
+            )}
+          </div>
+          <div
+            style={{
+              width: "60%",
+              padding: 24,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <span
+              style={{
+                color: G,
+                fontWeight: 900,
+                fontSize: 10,
+                textTransform: "uppercase",
+              }}
+            >
+              {featuredDeal.badge}
+            </span>
+            <h3 style={{ fontSize: 20, margin: "8px 0 12px" }}>
+              {featuredDeal.name}
+            </h3>
+            <div
+              style={{
+                fontSize: 24,
+                fontWeight: 900,
+                color: G,
+                marginBottom: 16,
+              }}
+            >
+              {featuredDeal.newPrice}
+            </div>
+            <div style={{ marginTop: "auto" }}>
+              <GoldBtn
+                onClick={(e) => {
+                  if (!goPage) {
+                    window.open(
+                      featuredDeal.affiliateLink ||
+                        featuredDeal.directLink ||
+                        featuredDeal.whatsappLink,
+                      "_blank",
+                    );
+                  } else {
+                    e.stopPropagation();
+                    goPage("deal-detail", featuredDeal);
+                  }
+                }}
+                style={{ fontSize: 12, padding: "10px 20px" }}
+              >
+                {featuredDeal.ctaText || "Buy Now"}
+              </GoldBtn>
+            </div>
+          </div>
+        </div>
+      </TiltCard>
+    </div>
+  );
+}
+
+function HomePage({ goPage, settings = {} }) {
+  const { docs: tips, loading: tipsLoading } = useCollection(
+    "tips",
+    "createdAt",
+    6
+  );
+  const { docs: updates, loading: updatesLoading } = useCollection(
+    "updates",
+    "createdAt",
+    6
+  );
+  const { docs: deals, loading: dealsLoading } = useCollection("deals", "createdAt", 6);
+  const { docs: products, loading: productsLoading } = useCollection("products", "createdAt", 6);
+  const { docs: courses, loading: coursesLoading } = useCollection("courses", "createdAt", 6);
+  const { docs: prompts, loading: promptsLoading } = useCollection(
+    "prompts",
+    "createdAt",
+    6
+  );
+  const { docs: websites, loading: websitesLoading } = useCollection("websites", "createdAt", 6);
+
+  const [art, setArt] = useState(null);
+  const [vid, setVid] = useState(null);
+  const [imgError, setImgError] = useState(false);
+
+  const featuredPrompt = prompts.length > 0 ? prompts[0] : null;
+  const featuredDeal = deals.length > 0 ? deals[0] : null;
+
+  // Relaxed filtering: If it's in the 'tips' collection, it's a tip. 
+  // If it's in 'updates', it's an update.
+  const featuredTips = tips.slice(0, 3);
+  const featuredUpdates = updates.slice(0, 3);
+
+  const featuredCourses = courses.length > 0 ? courses.slice(0, 3) : [];
+
+  return (
+    <section style={{ padding: "22px 0 16px" }}>
+      <W>
+        {art && (
+          <ArticleModal
+            article={art}
+            onClose={() => setArt(null)}
+            collection={
+              art.category === "tech-tips" || art.sectionType === "techTips"
+                ? "tips"
+                : "updates"
+            }
+          />
+        )}
+        {vid && (
+          <VideoModal
+            video={vid}
+            onClose={() => setVid(null)}
+            collection={
+              vid.category === "tech-tips" || vid.sectionType === "techTips"
+                ? "tips"
+                : "updates"
+            }
+          />
+        )}
+
+        {/* Hero Section */}
+        <div
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: 30,
+            border: "1px solid rgba(255,255,255,.07)",
+            padding:
+              "clamp(30px,5vw,62px) clamp(20px,4vw,52px) clamp(36px,5vw,54px)",
+            background:
+              "radial-gradient(circle at 18% 22%,rgba(245,166,35,.12),transparent 30%),radial-gradient(circle at 78% 28%,rgba(86,183,255,.12),transparent 35%),radial-gradient(circle at 50% 50%,rgba(147,51,234,.08),transparent 50%),linear-gradient(135deg,#05060a,#090b12,#05060a)",
+            boxShadow: "0 28px 80px rgba(0,0,0,.6)",
+          }}
+        >
+          <StarCanvas />
+          <EarthHero />
+
+          <div
+            style={{
+              position: "absolute",
+              bottom: -20,
+              left: 0,
+              right: 0,
+              height: "35%",
+              background:
+                "url('https://www.transparenttextures.com/patterns/dark-matter.png'), linear-gradient(to top, rgba(255,255,255,0.08), transparent)",
+              opacity: 0.5,
+              pointerEvents: "none",
+              zIndex: 1,
+              maskImage: "linear-gradient(to top, black 20%, transparent 90%)",
+              WebkitMaskImage:
+                "linear-gradient(to top, black 20%, transparent 90%)",
+            }}
+          />
+
+          <div style={{ position: "relative", zIndex: 2, maxWidth: 760 }}>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                borderRadius: 999,
+                padding: "8px 16px",
+                border: "1px solid rgba(245,166,35,.22)",
+                background: "rgba(245,166,35,.08)",
+                color: G,
+                fontSize: 11,
+                fontWeight: 900,
+                textTransform: "uppercase",
+                letterSpacing: ".12em",
+                marginBottom: 18,
+              }}
+            >
+              🚀 STEA · Learn · Build · Grow · Tanzania
+            </div>
+            <h1
+              style={{
+                fontFamily: "'Bricolage Grotesque',sans-serif",
+                fontSize: "clamp(46px,7vw,106px)",
+                lineHeight: 0.88,
+                letterSpacing: "-.07em",
+                margin: "0 0 14px",
+              }}
+            >
+              <span style={{ display: "block" }}>
+                {settings.hero?.title1 || "SwahiliTech"}
+              </span>
+              <span
+                style={{
+                  display: "block",
+                  background: `linear-gradient(135deg,${G},${G2})`,
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                {settings.hero?.title2 || "Elite Academy"}
+              </span>
+            </h1>
+            <div
+              style={{
+                fontSize: "clamp(15px,2vw,28px)",
+                fontWeight: 800,
+                letterSpacing: "-.03em",
+                color: "rgba(255,255,255,.86)",
+                margin: "0 0 6px",
+              }}
+            >
+              {settings.hero?.topSubtitle || "Teknolojia kwa Kiswahili 🇹🇿"}
+            </div>
+            <TypedText strings={settings.hero?.typedStrings} />
+            <p
+              style={{
+                maxWidth: 560,
+                lineHeight: 1.9,
+                color: "rgba(255,255,255,.65)",
+                fontSize: 16,
+                margin: "0 0 10px",
+                fontWeight: 500,
+              }}
+            >
+              {settings.hero?.subtitle ||
+                "STEA inaleta tech tips, updates, deals, electronics, na kozi za kisasa kwa lugha rahisi ya Kiswahili — platform ya kwanza ya tech kwa Watanzania."}
+            </p>
+            <p
+              style={{
+                color: G,
+                fontSize: 18,
+                fontWeight: 900,
+                marginBottom: 28,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {settings.hero?.quote ||
+                "“Mwaka 2026 ni mwaka wako wa kupata pesa kupitia skills za teknolojia.”"}
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: 14,
+                flexWrap: "wrap",
+                marginTop: 28,
+                alignItems: "center",
+              }}
+            >
+              <PushBtn onClick={() => goPage("courses")}>
+                🎓 Chagua Kozi Yako →
+              </PushBtn>
+              <button
+                onClick={() => goPage("tips")}
+                style={{
+                  border: "1px solid rgba(255,255,255,.14)",
+                  cursor: "pointer",
+                  borderRadius: 18,
+                  padding: "14px 26px",
+                  fontWeight: 900,
+                  fontSize: 15,
+                  color: "#fff",
+                  background: "rgba(255,255,255,.05)",
+                  transition: "0.3s",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "rgba(255,255,255,0.05)")
+                }
+              >
+                ⚡ Explore Content
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Value Highlights */}
+        <div
+          style={{
+            marginTop: 40,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
+            gap: 16,
+          }}
+        >
+          {[
+            { t: "Tech Tips", d: "Maujanja ya kila siku" },
+            { t: "Tech Updates", d: "Habari za tech duniani" },
+            { t: "Online Courses", d: "Jifunze skills za tech" },
+            { t: "Deals", d: "Ofa na punguzo kali" },
+            { t: "Prompt Lab", d: "AI prompts za nguvu" },
+            { t: "Duka", d: "Bidhaa na huduma" },
+          ].map((h, i) => (
+            <div
+              key={i}
+              style={{
+                padding: 20,
+                borderRadius: 20,
+                border: "1px solid rgba(255,255,255,.05)",
+                background: "rgba(255,255,255,.02)",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>
+                {h.t}
+              </div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,.5)" }}>
+                {h.d}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Featured Tech Tips */}
+        <div style={{ marginTop: 80 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              marginBottom: 24,
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <SHead
+              title="Featured"
+              hi="Tech Tips"
+              copy="Maujanja ya Android, AI na PC kwa Kiswahili."
+            />
+            <button
+              onClick={() => goPage("tips")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: G,
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: "pointer",
+                padding: "10px 0",
+              }}
+            >
+              View All Tips →
+            </button>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+              gap: 22,
+            }}
+          >
+            {tipsLoading ? (
+              [1, 2, 3].map((i) => <Skeleton key={i} />)
+            ) : featuredTips.length > 0 ? (
+              featuredTips.map((item) =>
+                item.type === "video" ? (
+                  <VideoCard
+                    key={item.id}
+                    item={item}
+                    onPlay={setVid}
+                    collection="tips"
+                  />
+                ) : (
+                  <ArticleCard
+                    key={item.id}
+                    item={item}
+                    onRead={setArt}
+                    collection="tips"
+                  />
+                ),
+              )
+            ) : (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  padding: 40,
+                  textAlign: "center",
+                  background: "rgba(255,255,255,.02)",
+                  borderRadius: 20,
+                  color: "rgba(255,255,255,.4)",
+                  fontSize: 14,
+                }}
+              >
+                Hakuna Tech Tips bado.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Featured Tech Updates */}
+        <div style={{ marginTop: 80 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              marginBottom: 24,
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <SHead
+              title="Latest"
+              hi="Tech Updates"
+              copy="Habari mpya za tech kutoka kila pembe ya dunia."
+            />
+            <button
+              onClick={() => goPage("habari")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: G,
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: "pointer",
+                padding: "10px 0",
+              }}
+            >
+              View All News →
+            </button>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+              gap: 22,
+            }}
+          >
+            {updatesLoading ? (
+              [1, 2, 3].map((i) => <Skeleton key={i} />)
+            ) : featuredUpdates.length > 0 ? (
+              featuredUpdates.map((item) => (
+                <ArticleCard
+                  key={item.id}
+                  item={item}
+                  onRead={setArt}
+                  collection="updates"
+                />
+              ))
+            ) : (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  padding: 40,
+                  textAlign: "center",
+                  background: "rgba(255,255,255,.02)",
+                  borderRadius: 20,
+                  color: "rgba(255,255,255,.4)",
+                  fontSize: 14,
+                }}
+              >
+                Hakuna Tech Updates bado.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Featured Courses */}
+        <div style={{ marginTop: 80 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              marginBottom: 24,
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <SHead
+              title="Premium"
+              hi="Courses"
+              copy="Jifunze stadi za kisasa kuanzia mwanzo hadi ubingwa."
+            />
+            <button
+              onClick={() => goPage("courses")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: G,
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: "pointer",
+                padding: "10px 0",
+              }}
+            >
+              View All Courses →
+            </button>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))",
+              gap: 24,
+            }}
+          >
+            {coursesLoading ? (
+              [1, 2, 3].map((i) => <Skeleton key={i} />)
+            ) : featuredCourses.length > 0 ? (
+              featuredCourses.map((c) => (
+                <CourseCard key={c.id} item={c} goPage={goPage} />
+              ))
+            ) : (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  padding: 40,
+                  textAlign: "center",
+                  background: "rgba(255,255,255,.02)",
+                  borderRadius: 20,
+                  color: "rgba(255,255,255,.4)",
+                  fontSize: 14,
+                }}
+              >
+                Hakuna Courses bado.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Featured Prompt */}
+        <div
+          style={{
+            marginTop: 80,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))",
+            gap: 40,
+            alignItems: "center",
+          }}
+        >
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+          >
+            <span
+              style={{
+                color: G,
+                fontWeight: 900,
+                fontSize: 12,
+                textTransform: "uppercase",
+                letterSpacing: 2,
+                marginBottom: 12,
+                display: "block",
+              }}
+            >
+              Featured Prompt
+            </span>
+            <h2
+              style={{
+                fontFamily: "'Bricolage Grotesque',sans-serif",
+                fontSize: 38,
+                margin: "0 0 16px",
+                letterSpacing: "-.04em",
+              }}
+            >
+              Nguvu ya AI mkononi mwako.
+            </h2>
+            <p
+              style={{
+                color: "rgba(255,255,255,.6)",
+                fontSize: 16,
+                lineHeight: 1.7,
+                marginBottom: 24,
+              }}
+            >
+              Tumia prompts zetu zilizojaribiwa kupata matokeo bora zaidi kutoka
+              kwa ChatGPT na Gemini kwa Kiswahili.
+            </p>
+            <GoldBtn onClick={() => goPage("prompts")}>
+              Gundua Prompt Lab <ChevronRight size={18} />
+            </GoldBtn>
+          </motion.div>
+          {promptsLoading ? (
+            <Skeleton type="prompt" />
+          ) : (
+            featuredPrompt ? (
+              <TiltCard>
+                <div
+                  style={{
+                    position: "relative",
+                    aspectRatio: "16/9",
+                    background: "rgba(255,255,255,.03)",
+                    borderBottom: "1px solid rgba(255,255,255,.07)",
+                    overflow: "hidden",
+                  }}
+                >
+                  {featuredPrompt.imageUrl && !imgError && (
+                    <img
+                      loading="lazy"
+                      src={featuredPrompt.imageUrl}
+                      alt={featuredPrompt.title}
+                      referrerPolicy="no-referrer"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        position: "absolute",
+                        inset: 0,
+                      }}
+                      onError={() => setImgError(true)}
+                    />
+                  )}
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background:
+                        "linear-gradient(to bottom, transparent, rgba(0,0,0,.4))",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 14,
+                      left: 14,
+                      zIndex: 2,
+                    }}
+                  >
+                    <span
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: 99,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        ...BS.gold,
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
+                      }}
+                    >
+                      {featuredPrompt.category}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ padding: 24 }}>
+                  <h3
+                    style={{
+                      fontFamily: "'Bricolage Grotesque',sans-serif",
+                      fontSize: 24,
+                      margin: "0 0 12px",
+                      letterSpacing: "-.02em",
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {featuredPrompt.title}
+                  </h3>
+                  <div
+                    style={{
+                      background: "rgba(0,0,0,.3)",
+                      padding: 16,
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,.05)",
+                      fontStyle: "italic",
+                      color: "rgba(255,255,255,.6)",
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      marginBottom: 20,
+                    }}
+                  >
+                    &quot;{featuredPrompt.prompt.substring(0, 140)}...&quot;
+                  </div>
+                  <GoldBtn onClick={() => goPage("prompts")}>
+                    Gundua Prompt Lab <ChevronRight size={18} />
+                  </GoldBtn>
+                </div>
+              </TiltCard>
+            ) : (
+              <div
+                style={{
+                  padding: 40,
+                  textAlign: "center",
+                  background: "rgba(255,255,255,.02)",
+                  borderRadius: 20,
+                  color: "rgba(255,255,255,.4)",
+                  fontSize: 14,
+                }}
+              >
+                Hakuna Featured Prompt kwa sasa.
+              </div>
+            )
+          )}
+        </div>
+
+        {/* Featured Deal */}
+        {dealsLoading ? (
+          <div style={{ marginTop: 80 }}><Skeleton /></div>
+        ) : featuredDeal ? (
+          <div
+            style={{
+              marginTop: 80,
+              background: "rgba(245,166,35,.03)",
+              borderRadius: 32,
+              border: "1px solid rgba(245,166,35,.1)",
+              padding: 40,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))",
+              gap: 40,
+              alignItems: "center",
+            }}
+          >
+            <div style={{ order: window.innerWidth < 800 ? 2 : 1 }}>
+              <span
+                style={{
+                  color: G,
+                  fontWeight: 900,
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 2,
+                  marginBottom: 12,
+                  display: "block",
+                }}
+              >
+                Limited Time Deal
+              </span>
+              <h2
+                style={{
+                  fontFamily: "'Bricolage Grotesque',sans-serif",
+                  fontSize: 38,
+                  margin: "0 0 16px",
+                  letterSpacing: "-.04em",
+                }}
+              >
+                Okoa pesa na Tech Deals bora.
+              </h2>
+              <p
+                style={{
+                  color: "rgba(255,255,255,.6)",
+                  fontSize: 16,
+                  lineHeight: 1.7,
+                  marginBottom: 24,
+                }}
+              >
+                Tunakuletea ofa kali za vifaa na huduma za tech kutoka vyanzo
+                vinavyoaminika Tanzania.
+              </p>
+              <GoldBtn onClick={() => goPage("deals")}>
+                Tazama Deals Zote <ChevronRight size={18} />
+              </GoldBtn>
+            </div>
+            <div style={{ order: window.innerWidth < 800 ? 1 : 2 }}>
+              <FeaturedDeal featuredDeal={featuredDeal} goPage={goPage} />
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              marginTop: 80,
+              padding: 40,
+              textAlign: "center",
+              background: "rgba(255,255,255,.02)",
+              borderRadius: 20,
+              color: "rgba(255,255,255,.4)",
+              fontSize: 14,
+            }}
+          >
+            Hakuna Hot Deal kwa sasa. Angalia Deals zote hapa chini.
+          </div>
+        )}
+
+        {/* Duka Products */}
+        <div style={{ marginTop: 80 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              marginBottom: 24,
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <SHead
+              title="Shop"
+              hi="Duka Products"
+              copy="Bidhaa bora za tech kwa bei nafuu."
+            />
+            <button
+              onClick={() => goPage("duka")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: G,
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: "pointer",
+                padding: "10px 0",
+              }}
+            >
+              View All Products →
+            </button>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))",
+              gap: 22,
+            }}
+          >
+            {productsLoading ? (
+              [1, 2, 3, 4].map((i) => <Skeleton key={i} />)
+            ) : products.length > 0 ? (
+              products.slice(0, 4).map((p) => (
+                <ProductCard key={p.id} p={p} />
+              ))
+            ) : (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  padding: 40,
+                  textAlign: "center",
+                  background: "rgba(255,255,255,.02)",
+                  borderRadius: 20,
+                  color: "rgba(255,255,255,.4)",
+                  fontSize: 14,
+                }}
+              >
+                Hakuna Bidhaa bado.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Websites section */}
+        <div style={{ marginTop: 80 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              marginBottom: 24,
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <SHead
+              title="Websites"
+              hi="STEA Web Solutions"
+              copy="Gundua websites bora na za siri ambazo watu wengi hawazijui..."
+            />
+            <button
+              onClick={() => goPage("websites")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: G,
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: "pointer",
+                padding: "10px 0",
+              }}
+            >
+              View All Websites →
+            </button>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))",
+              gap: 22,
+            }}
+          >
+            {websitesLoading ? (
+              [1, 2, 3].map((i) => <Skeleton key={i} />)
+            ) : websites && websites.length > 0 ? (
+              websites.slice(0, 3).map((w) => (
+                <WebsiteCard key={w.id} w={w} />
+              ))
+            ) : (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  padding: 40,
+                  textAlign: "center",
+                  background: "rgba(255,255,255,.02)",
+                  borderRadius: 20,
+                  color: "rgba(255,255,255,.4)",
+                  fontSize: 14,
+                }}
+              >
+                Hakuna Websites bado.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 80,
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            justifyContent: "center",
+          }}
+        >
+          <a
+            href="mailto:swahilitecheliteacademy@gmail.com"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "10px 20px",
+              borderRadius: 14,
+              border: "1px solid rgba(245,166,35,.2)",
+              background: "rgba(245,166,35,.07)",
+              color: G,
+              fontSize: 14,
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            ✉️ Email Us
+          </a>
+          <a
+            href="https://wa.me/8619715852043"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "10px 20px",
+              borderRadius: 14,
+              border: "1px solid rgba(37,211,102,.2)",
+              background: "rgba(37,211,102,.07)",
+              color: "#25d366",
+              fontSize: 14,
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            💬 WhatsApp Support
+          </a>
+        </div>
+      </W>
+    </section>
+  );
+}
+
+// ════════════════════════════════════════════════════
+// ROOT APP
+// ════════════════════════════════════════════════════
+
+export default function App() {
+  const [page, setPage] = useState("home");
+  const [transitioning, setTransitioning] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [scrollPct, setScrollPct] = useState(0);
+  const [showTop, setShowTop] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [siteSettings, setSiteSettings] = useState({});
+  const [faqs, setFaqs] = useState([]);
+  const [popupAd, setPopupAd] = useState(null);
+  const [showPopup, setShowPopup] = useState(false);
+
+  const closePopup = async () => {
+    setShowPopup(false);
+    if (popupAd) {
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const freq = popupAd.showFrequency || "once_per_day";
+      // Track frequency
+      if (freq === "once_per_session") {
+        sessionStorage.setItem(`stea_popup_session_${popupAd.id}`, "1");
+      } else if (freq === "once_per_day") {
+        const dayKey = `stea_popup_day_${popupAd.id}_${todayKey}`;
+        const current = parseInt(localStorage.getItem(dayKey) || "0");
+        localStorage.setItem(dayKey, String(current + 1));
+      }
+      // Track impression
+      try {
+        const db2 = getFirebaseDb();
+        if (db2) await updateDoc(doc(db2, "sponsored_ads", popupAd.id), { totalImpressions: (popupAd.totalImpressions||0) + 1 });
+      } catch(e) {}
+    }
+  };
+
+  useEffect(() => {
+    initFirebase();
+    const t = setTimeout(() => setLoaded(true), 2200);
+    const db = getFirebaseDb();
+    if (!db) return;
+
+    // Sponsored Ads — full campaign engine
+    const q = query(collection(db, "sponsored_ads"), limit(50));
+    const unsubAds = onSnapshot(q, async (snap) => {
+      const ads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const now = new Date();
+      const todayKey = now.toISOString().slice(0, 10);
+
+      // Auto-expire: write back if needed
+      for (const ad of ads) {
+        if (ad.autoExpire && ad.endDate && new Date(ad.endDate) < now && ad.campaignStatus !== "expired") {
+          try { 
+            const db2 = getFirebaseDb();
+            if (db2) await updateDoc(doc(db2, "sponsored_ads", ad.id), { campaignStatus: "expired" });
+          } catch (e) {}
+        }
+      }
+
+      // Filter: only active popups within date range
+      const eligible = ads
+        .filter(a => {
+          if (a.adType !== "popup") return false;
+          if (a.campaignStatus !== "active") return false;
+          if (a.startDate && new Date(a.startDate) > now) return false;
+          if (a.endDate && new Date(a.endDate) < now) return false;
+
+          // Frequency check
+          const freq = a.showFrequency || "once_per_day";
+          const sessionKey = `stea_popup_session_${a.id}`;
+          const dayKey = `stea_popup_day_${a.id}_${todayKey}`;
+          const dayViews = parseInt(localStorage.getItem(dayKey) || "0");
+          const maxViews = parseInt(a.maxViewsPerUserPerDay) || 1;
+
+          if (freq === "once_per_session" && sessionStorage.getItem(sessionKey)) return false;
+          if (freq === "once_per_day" && dayViews >= maxViews) return false;
+          // every_visit = always show
+          return true;
+        })
+        .sort((a, b) => (parseInt(b.priority) || 1) - (parseInt(a.priority) || 1));
+
+      if (eligible.length > 0) {
+        const best = eligible[0];
+        const delay = (parseInt(best.showDelaySeconds) || 5) * 1000;
+        setPopupAd(best);
+        setTimeout(() => setShowPopup(true), delay);
+      }
+    });
+
+    // Site Settings
+    const unsubs = ["about_us", "about_creator", "contact_info", "stats", "hero"].map(id => 
+      onSnapshot(doc(db, "site_settings", id), (snap) => {
+        if (snap.exists()) {
+          setSiteSettings(prev => ({ ...prev, [id]: snap.data().data }));
+        }
+      })
+    );
+    const faqUnsub = onSnapshot(query(collection(db, "faqs"), orderBy("order", "asc")), (snap) => {
+      setFaqs(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(f => f.isActive));
+    });
+    const unsubAuth = onAuthStateChanged(getFirebaseAuth(), async (u) => {
+      if (u) {
+        const db = getFirebaseDb();
+        let role = "user";
+        if (isAdminEmail(u.email)) {
+          role = "admin";
+        } else if (db) {
+          try {
+            const s = await getDoc(doc(db, "users", u.uid));
+            if (s.exists()) role = s.data().role || "user";
+          } catch (e) {
+            console.error("Error fetching user role:", e);
+          }
+        }
+        setUser({ ...u, role });
+      } else {
+        setUser(null);
+      }
+    });
+    return () => { 
+      clearTimeout(t);
+      unsubAds();
+      unsubs.forEach(u => u()); 
+      faqUnsub(); 
+      unsubAuth();
+    };
+  }, []);
+
+  useEffect(() => {
+    const fn = () => {
+      const h = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollPct(h > 0 ? (window.scrollY / h) * 100 : 0);
+      setShowTop(window.scrollY > 400);
+    };
+    window.addEventListener("scroll", fn);
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
+
+  useEffect(() => {
+    console.log("Current User State:", user);
+  }, [user]);
+
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [selectedDeal, setSelectedDeal] = useState(null);
+
+  const goPage = (p, data = null) => {
+    setMobileOpen(false);
+    if (p === page && !data) return;
+    setTransitioning(true);
+    setTimeout(() => {
+      if (p === "course-detail" && data) {
+        setSelectedCourse(data);
+      }
+      if (p === "deal-detail" && data) {
+        setSelectedDeal(data);
+      }
+      setPage(p);
+      window.scrollTo(0, 0);
+      setMobileOpen(false);
+      setTimeout(() => setTransitioning(false), 600);
+    }, 500);
+  };
+  const handleLogout = async () => {
+    try {
+      await signOut(getFirebaseAuth());
+      setUser(null);
+      setPage("home");
+      setAdminOpen(false);
+      setAuthOpen(false);
+    } catch (e) {
+      console.error("Logout error:", e);
+    }
+  };
+
+  const PAGES = {
+    home: <HomePage goPage={goPage} settings={siteSettings} />,
+    tips: <TechContentPage key="tips" defaultTab="tips" />,
+    habari: <TechContentPage key="updates" defaultTab="updates" />,
+    prompts: <PromptLabPage />,
+    deals: <DealsPage goPage={goPage} />,
+    "deal-detail": (
+      <DealDetailPage deal={selectedDeal} goPage={goPage} />
+    ),
+    courses: <CoursesPage goPage={goPage} />,
+    "course-detail": (
+      <CourseDetailPage course={selectedCourse} goPage={goPage} />
+    ),
+    duka: <DukaPage />,
+    websites: <WebsitesPage />,
+    about: <AboutPage goPage={goPage} siteSettings={siteSettings} />,
+    creator: <CreatorPage goPage={goPage} siteSettings={siteSettings} />,
+    contact: <ContactPage siteSettings={siteSettings} />,
+    faq: <FAQPage faqs={faqs} />,
+    privacy: <PrivacyPage />,
+    terms: <TermsPage />,
+  };
+
+  return (
+    <>
+      <NotificationManager />
+      {showPopup && popupAd && (
+        <div style={{
+          position:"fixed", inset:0, zIndex:9998,
+          background:"rgba(4,5,9,.85)", backdropFilter:"blur(12px)",
+          display:"flex", alignItems:"center", justifyContent:"center", padding:20,
+        }} onClick={popupAd.isClosable !== false ? closePopup : undefined}>
+          <div style={{
+            background:"linear-gradient(135deg,#0d111a,#141823)",
+            borderRadius:24, padding:0, maxWidth:420, width:"100%", position:"relative",
+            border:"1px solid rgba(255,255,255,.1)",
+            boxShadow:"0 32px 80px rgba(0,0,0,.7)",
+            overflow:"hidden",
+            animation:"steaFadeUp .35s cubic-bezier(.34,1.56,.64,1)",
+          }} onClick={e=>e.stopPropagation()}>
+            {/* Sponsored label */}
+            <div style={{
+              position:"absolute", top:12, left:12, zIndex:10,
+              background:"rgba(0,0,0,.5)", backdropFilter:"blur(8px)",
+              padding:"3px 10px", borderRadius:99, fontSize:10, fontWeight:700,
+              color:"rgba(255,255,255,.45)", letterSpacing:".06em", textTransform:"uppercase",
+            }}>Sponsored</div>
+            {/* Close button */}
+            {popupAd.isClosable !== false && (
+              <button onClick={closePopup} style={{
+                position:"absolute", top:12, right:12, zIndex:10,
+                width:30, height:30, borderRadius:"50%",
+                background:"rgba(0,0,0,.5)", backdropFilter:"blur(8px)",
+                border:"1px solid rgba(255,255,255,.12)", color:"rgba(255,255,255,.7)",
+                cursor:"pointer", fontSize:16, display:"grid", placeItems:"center",
+              }}>✕</button>
+            )}
+            {/* Image */}
+            {popupAd.imageUrl && (
+              <div style={{ width:"100%", aspectRatio:"16/9", overflow:"hidden" }}>
+                <img src={popupAd.imageUrl} alt={popupAd.title}
+                  style={{ width:"100%", height:"100%", objectFit:"cover" }} referrerPolicy="no-referrer"/>
+              </div>
+            )}
+            {/* Content */}
+            <div style={{ padding:"20px 24px 24px" }}>
+              {popupAd.clientName && (
+                <div style={{ fontSize:11, color:"rgba(245,166,35,.7)", fontWeight:700, textTransform:"uppercase", letterSpacing:".1em", marginBottom:6 }}>
+                  {popupAd.clientName}
+                </div>
+              )}
+              <h3 style={{ fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:22, fontWeight:800, color:"#fff", margin:"0 0 10px", lineHeight:1.2, letterSpacing:"-.03em" }}>
+                {popupAd.title}
+              </h3>
+              {popupAd.shortText && (
+                <p style={{ fontSize:14, color:"rgba(255,255,255,.6)", lineHeight:1.7, margin:"0 0 20px" }}>
+                  {popupAd.shortText}
+                </p>
+              )}
+              {popupAd.ctaText && popupAd.ctaLink && (
+                <a href={popupAd.ctaLink} target="_blank" rel="noreferrer"
+                  onClick={async()=>{
+                    try{const db2=getFirebaseDb();if(db2)await updateDoc(doc(db2,"sponsored_ads",popupAd.id),{totalClicks:(popupAd.totalClicks||0)+1});}catch(e){}
+                    closePopup();
+                  }}
+                  style={{
+                    display:"block", background:"linear-gradient(135deg,#F5A623,#FFD17C)",
+                    color:"#111", textAlign:"center", padding:"14px 20px",
+                    borderRadius:14, fontWeight:900, textDecoration:"none", fontSize:15,
+                    boxShadow:"0 8px 24px rgba(245,166,35,.35)",
+                    transition:"transform .2s",
+                  }}
+                  onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+                  onMouseLeave={e=>e.currentTarget.style.transform=""}
+                >{popupAd.ctaText}</a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      <InstallPrompt />
+      <ErrorBoundary>
+      {adminOpen ? (
+        <div
+          style={{
+            fontFamily: "'Instrument Sans',system-ui,sans-serif",
+            color: "#fff",
+            minHeight: "100vh",
+            background: "#0a0b0f",
+          }}
+        >
+          <style>{`@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Instrument+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}input::placeholder{color:rgba(255,255,255,.28)}textarea::placeholder{color:rgba(255,255,255,.28)}`}</style>
+          <AdminPanel user={user} onBack={() => setAdminOpen(false)} />
+        </div>
+      ) : (
+        <div
+          style={{
+            fontFamily: "'Instrument Sans',system-ui,sans-serif",
+            color: "#fff",
+            minHeight: "100vh",
+            overflowX: "hidden",
+            background:
+              "radial-gradient(circle at 14% 12%,rgba(245,166,35,.12),transparent 18%),radial-gradient(circle at 84% 22%,rgba(86,183,255,.12),transparent 20%),linear-gradient(180deg,#05060a,#080a11)",
+          }}
+        >
+          <style>{`@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Instrument+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0}@keyframes blink{50%{opacity:0}}@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}@keyframes logoPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,166,35,.45)}50%{box-shadow:0 0 0 18px rgba(245,166,35,0)}}@keyframes steaGlow{0%,100%{opacity:0.6;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}@keyframes steaEntrance{from{opacity:0;transform:scale(0.75)}to{opacity:1;transform:scale(1)}}@keyframes steaPulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 0px rgba(245,166,35,0))}50%{transform:scale(1.04);filter:drop-shadow(0 0 18px rgba(245,166,35,0.35))}}@keyframes loadBar{0%{width:0%}60%{width:65%}100%{width:100%}}@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:rgba(245,166,35,.28);border-radius:3px}input::placeholder{color:rgba(255,255,255,.28)}a{text-decoration:none;color:inherit}nav::-webkit-scrollbar{display:none}@media(max-width:900px){#desktopNav{display:none!important}}@media(min-width:901px){#hamburger{display:none!important}}.course-list-item{display:flex;flex-direction:column;height:100%}.course-img-container{aspect-ratio:16/9;width:100%;border-bottom:1px solid rgba(255,255,255,.05)}.course-hero{display:grid;grid-template-columns:1fr;gap:30px}.course-hero-img{aspect-ratio:16/9;width:100%}@media(min-width:900px){.course-hero{grid-template-columns:1.2fr 1fr;gap:60px;align-items:center}.course-hero-img{aspect-ratio:16/9}}`}</style>
+
+          <LoadingScreen done={loaded} />
+
+          <AnimatePresence>
+            {transitioning && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  zIndex: 1000,
+                  background: "rgba(5, 6, 10, 0.4)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
+                  transition={{
+                    duration: 1.2,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }}
+                  style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 24,
+                    background: `linear-gradient(135deg, ${G}, ${G2})`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: `0 0 40px ${G}44`,
+                    marginBottom: 24,
+                  }}
+                >
+                  <svg
+                    width="40"
+                    height="40"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#111"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
+                  </svg>
+                </motion.div>
+                <div
+                  style={{
+                    width: 140,
+                    height: 4,
+                    background: "rgba(255,255,255,0.1)",
+                    borderRadius: 99,
+                    overflow: "hidden",
+                  }}
+                >
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: "100%" }}
+                    transition={{ duration: 0.5 }}
+                    style={{ height: "100%", background: G }}
+                  />
+                </div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    fontSize: 10,
+                    fontWeight: 900,
+                    color: G,
+                    textTransform: "uppercase",
+                    letterSpacing: 2,
+                    textShadow: "0 2px 10px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  STEA Loading...
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div
+            style={{
+              position: "fixed",
+              left: 0,
+              top: 0,
+              height: 3,
+              width: `${scrollPct}%`,
+              zIndex: 400,
+              background: `linear-gradient(90deg,${G},${G2})`,
+              boxShadow: `0 0 12px rgba(245,166,35,.6)`,
+              transition: "width .1s",
+              pointerEvents: "none",
+            }}
+          />
+
+          {/* Ticker */}
+          <div
+            style={{
+              background: `linear-gradient(90deg,${G},${G2})`,
+              color: "#111",
+              padding: "9px 0",
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              fontSize: 13,
+              fontWeight: 800,
+              userSelect: "none",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                gap: 32,
+                animation: "ticker 26s linear infinite",
+              }}
+            >
+              {[
+                "🔥 Tech Tips mpya kila siku",
+                "🤖 AI & ChatGPT kwa Kiswahili",
+                "📱 Android, iPhone na PC Hacks",
+                "🛍️ Deals za Tanzania",
+                "🎓 Kozi za STEA kwa M-Pesa",
+                "⚡ SwahiliTech Elite Academy — STEA",
+                "🔥 Tech Tips mpya kila siku",
+                "🤖 AI & ChatGPT kwa Kiswahili",
+                "📱 Android, iPhone na PC Hacks",
+                "🛍️ Deals za Tanzania",
+                "🎓 Kozi za STEA kwa M-Pesa",
+                "⚡ SwahiliTech Elite Academy — STEA",
+              ].map((t, i) => (
+                <span key={i}>{t}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Topbar */}
+          <div
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 300,
+              backdropFilter: "blur(20px)",
+              background: "rgba(7,8,13,.78)",
+              borderBottom: "1px solid rgba(255,255,255,.06)",
+            }}
+          >
+            <div
+              style={{
+                maxWidth: 1180,
+                margin: "0 auto",
+                padding: "0 14px",
+                minHeight: 76,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                position: "relative",
+              }}
+            >
+              <div
+                onClick={() => goPage("home")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  userSelect: "none",
+                }}
+              >
+                <img 
+                  src="/stea-icon.jpg" 
+                  alt="STEA Logo" 
+                  className="stea-navbar-logo" 
+                  referrerPolicy="no-referrer"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+                <div>
+                  <strong
+                    style={{
+                      display: "block",
+                      fontSize: 18,
+                      lineHeight: 1,
+                      letterSpacing: "-.04em",
+                      fontWeight: 800,
+                    }}
+                  >
+                    STEA
+                  </strong>
+                  <span
+                    style={{
+                      display: "block",
+                      marginTop: 3,
+                      color: "rgba(255,255,255,.38)",
+                      fontSize: 10,
+                      letterSpacing: ".03em",
+                    }}
+                  >
+                    Tanzania&apos;s Tech Platform
+                  </span>
+                </div>
+              </div>
+
+              <nav
+                id="desktopNav"
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  justifyContent: "center",
+                  minWidth: 0,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 3,
+                    alignItems: "center",
+                    padding: "5px",
+                    border: "1px solid rgba(255,255,255,.07)",
+                    background: "rgba(255,255,255,.04)",
+                    borderRadius: 999,
+                    overflow: "auto",
+                    scrollbarWidth: "none",
+                  }}
+                >
+                  {NAV.map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => goPage(n.id)}
+                      style={{
+                        border: "none",
+                        background:
+                          page === n.id
+                            ? `linear-gradient(135deg,${G},${G2})`
+                            : "transparent",
+                        color: page === n.id ? "#111" : "rgba(255,255,255,.68)",
+                        padding: "9px 12px",
+                        borderRadius: 999,
+                        fontSize: 13,
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                        transition: "all .2s",
+                        boxShadow:
+                          page === n.id
+                            ? "0 6px 16px rgba(245,166,35,.18)"
+                            : "none",
+                      }}
+                    >
+                      {n.label}
+                    </button>
+                  ))}
+                </div>
+              </nav>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexShrink: 0,
+                }}
+              >
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,.08)",
+                    background: "rgba(255,255,255,.04)",
+                    color: "rgba(255,255,255,.65)",
+                    cursor: "pointer",
+                    fontSize: 19,
+                    display: "grid",
+                    placeItems: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  ⌕
+                </button>
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <button
+                    onClick={() => setNotifOpen((v) => !v)}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,.08)",
+                      background: "rgba(255,255,255,.04)",
+                      color: "rgba(255,255,255,.65)",
+                      cursor: "pointer",
+                      fontSize: 17,
+                      display: "grid",
+                      placeItems: "center",
+                    }}
+                  >
+                    🔔
+                  </button>
+                  {notifOpen && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: "calc(100% + 10px)",
+                        width: 290,
+                        borderRadius: 18,
+                        border: "1px solid rgba(255,255,255,.12)",
+                        background: "rgba(14,16,26,.98)",
+                        boxShadow: "0 24px 60px rgba(0,0,0,.45)",
+                        padding: 12,
+                        zIndex: 500,
+                      }}
+                    >
+                      {[
+                        {
+                          t: "Deal mpya imeingia",
+                          b: "Angalia deals zetu mpya.",
+                        },
+                        {
+                          t: "Kozi mpya iko active",
+                          b: "AI & ChatGPT Mastery iko tayari.",
+                        },
+                        {
+                          t: "Habari mpya za tech",
+                          b: "Angalia Tech Updates za leo.",
+                        },
+                      ].map((n, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            padding: "11px 12px",
+                            borderRadius: 12,
+                            border: "1px solid rgba(255,255,255,.06)",
+                            background: "rgba(255,255,255,.04)",
+                            marginTop: i > 0 ? 8 : 0,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              marginBottom: 3,
+                              fontSize: 14,
+                            }}
+                          >
+                            {n.t}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              color: "rgba(255,255,255,.55)",
+                              lineHeight: 1.55,
+                            }}
+                          >
+                            {n.b}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {user ? (
+                  <UserChip
+                    user={user}
+                    onLogout={handleLogout}
+                    onAdmin={() => setAdminOpen(true)}
+                  />
+                ) : (
+                  <button
+                    onClick={() => setAuthOpen(true)}
+                    style={{
+                      height: 40,
+                      padding: "0 16px",
+                      borderRadius: 12,
+                      border: "none",
+                      background: `linear-gradient(135deg,${G},${G2})`,
+                      color: "#111",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                      fontSize: 13,
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                  >
+                    Ingia
+                  </button>
+                )}
+                <button
+                  id="hamburger"
+                  onClick={() => setMobileOpen((v) => !v)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,.08)",
+                    background: "rgba(255,255,255,.04)",
+                    color: "rgba(255,255,255,.65)",
+                    cursor: "pointer",
+                    fontSize: 18,
+                    display: "grid",
+                    placeItems: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {mobileOpen ? "✕" : "☰"}
+                </button>
+              </div>
+
+              {mobileOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    top: "calc(100% + 6px)",
+                    borderRadius: 20,
+                    border: "1px solid rgba(255,255,255,.12)",
+                    background: "rgba(12,14,22,.98)",
+                    boxShadow: "0 24px 60px rgba(0,0,0,.5)",
+                    padding: 14,
+                    zIndex: 400,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 9,
+                    }}
+                  >
+                    {NAV.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => goPage(n.id)}
+                        style={{
+                          border: "1px solid rgba(255,255,255,.08)",
+                          background:
+                            page === n.id
+                              ? `linear-gradient(135deg,${G},${G2})`
+                              : "rgba(255,255,255,.04)",
+                          color:
+                            page === n.id ? "#111" : "rgba(255,255,255,.68)",
+                          borderRadius: 13,
+                          padding: "12px 14px",
+                          textAlign: "left",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          fontSize: 14,
+                        }}
+                      >
+                        {n.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Search */}
+          {searchOpen && (
+            <div
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setSearchOpen(false);
+              }}
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 600,
+                background: "rgba(4,5,9,.84)",
+                backdropFilter: "blur(18px)",
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "center",
+                padding: "88px 16px 20px",
+              }}
+            >
+              <div
+                style={{
+                  width: "min(680px,100%)",
+                  borderRadius: 24,
+                  border: "1px solid rgba(255,255,255,.12)",
+                  background: "rgba(12,14,22,.97)",
+                  boxShadow: "0 32px 80px rgba(0,0,0,.55)",
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ padding: 16 }}>
+                  <input
+                    autoFocus
+                    value={searchQ}
+                    onChange={(e) => setSearchQ(e.target.value)}
+                    placeholder="Search STEA — tips, deals, courses, websites..."
+                    style={{
+                      width: "100%",
+                      height: 52,
+                      borderRadius: 14,
+                      border: "1px solid rgba(255,255,255,.1)",
+                      background: "rgba(255,255,255,.05)",
+                      color: "#fff",
+                      padding: "0 16px",
+                      outline: "none",
+                      fontSize: 15,
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+                <div
+                  style={{ padding: "0 16px 16px", display: "grid", gap: 7 }}
+                >
+                  {NAV.filter(
+                    (n) =>
+                      !searchQ ||
+                      n.label.toLowerCase().includes(searchQ.toLowerCase()),
+                  ).map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => goPage(n.id)}
+                      style={{
+                        border: "1px solid rgba(255,255,255,.06)",
+                        background: "rgba(255,255,255,.04)",
+                        borderRadius: 13,
+                        padding: "12px 16px",
+                        cursor: "pointer",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.background =
+                          "rgba(255,255,255,.08)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.background =
+                          "rgba(255,255,255,.04)")
+                      }
+                    >
+                      <strong
+                        style={{
+                          display: "block",
+                          marginBottom: 3,
+                          fontSize: 15,
+                        }}
+                      >
+                        {n.label}
+                      </strong>
+                      <span
+                        style={{ fontSize: 13, color: "rgba(255,255,255,.45)" }}
+                      >
+                        STEA — {n.label} section
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {authOpen && (
+            <AuthModal
+              onClose={() => setAuthOpen(false)}
+              onUser={(u) => {
+                setUser(u);
+                setAuthOpen(false);
+              }}
+            />
+          )}
+
+          <main>{PAGES[page] || PAGES.home}</main>
+
+          {/* Newsletter */}
+          {page === "home" && <NewsletterForm />}
+
+          {/* Footer */}
+          <footer
+            style={{
+              background: "#05060a",
+              borderTop: "1px solid rgba(255,255,255,.06)",
+              padding: "80px 0 40px",
+              marginTop: 100,
+            }}
+          >
+            <W>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
+                  gap: 60,
+                  marginBottom: 60,
+                }}
+              >
+                <div style={{ gridColumn: "span 2" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      marginBottom: 24,
+                    }}
+                  >
+                    <img 
+                      src="/stea-icon.jpg" 
+                      alt="STEA Logo" 
+                      className="stea-footer-logo" 
+                      referrerPolicy="no-referrer"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                  </div>
+                  <p
+                    style={{
+                      color: "rgba(255,255,255,.5)",
+                      lineHeight: 1.8,
+                      maxWidth: 380,
+                      marginBottom: 32,
+                    }}
+                  >
+                    {siteSettings.about_us?.shortDesc ||
+                      "SwahiliTech Elite Academy (STEA) ni jukwaa namba moja la teknolojia kwa Kiswahili nchini Tanzania. Tunaleta elimu, habari na ofa bora za tech kiganjani mwako."}
+                  </p>
+                  <div style={{ display: "flex", gap: 16, marginBottom: 32 }}>
+                    {Object.entries(siteSettings.contact_info?.socialLinks || {}).map(
+                      ([s, url]) =>
+                        url && (
+                          <a
+                            key={s}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 12,
+                              border: "1px solid rgba(255,255,255,.08)",
+                              background: "rgba(255,255,255,.04)",
+                              display: "grid",
+                              placeItems: "center",
+                              color: "rgba(255,255,255,.6)",
+                              fontSize: 18,
+                            }}
+                          >
+                            {s === "facebook" && "F"}
+                            {s === "instagram" && "I"}
+                            {s === "twitter" && "X"}
+                            {s === "youtube" && "Y"}
+                            {s === "linkedin" && "L"}
+                            {s === "tiktok" && "T"}
+                          </a>
+                        )
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h4
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 800,
+                      marginBottom: 24,
+                      color: "#fff",
+                    }}
+                  >
+                    Quick Links
+                  </h4>
+                  <div style={{ display: "grid", gap: 12 }}>
+                    {NAV.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => goPage(n.id)}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "rgba(255,255,255,.5)",
+                          fontSize: 14,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          padding: 0,
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = G)}
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.color = "rgba(255,255,255,.5)")
+                        }
+                      >
+                        {n.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h4
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 800,
+                      marginBottom: 24,
+                      color: "#fff",
+                    }}
+                  >
+                    Trust & Legal
+                  </h4>
+                  <div style={{ display: "grid", gap: 12 }}>
+                    {[
+                      { id: "about", l: "About Us" },
+                      { id: "creator", l: "About Creator" },
+                      { id: "contact", l: "Contact Us" },
+                      { id: "faq", l: "FAQ" },
+                      { id: "privacy", l: "Privacy Policy" },
+                      { id: "terms", l: "Terms of Use" },
+                    ].map((l) => (
+                      <button
+                        key={l.id}
+                        onClick={() => goPage(l.id)}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "rgba(255,255,255,.5)",
+                          fontSize: 14,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          padding: 0,
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = G)}
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.color = "rgba(255,255,255,.5)")
+                        }
+                      >
+                        {l.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  borderTop: "1px solid rgba(255,255,255,.06)",
+                  paddingTop: 40,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 20,
+                }}
+              >
+                <div style={{ color: "rgba(255,255,255,.3)", fontSize: 13 }}>
+                  © 2026 SwahiliTech Elite Academy. All rights reserved.
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 24,
+                    color: "rgba(255,255,255,.3)",
+                    fontSize: 13,
+                  }}
+                >
+                  <span>Made with ❤️ in Tanzania</span>
+                  <span>v2.5.0 Premium</span>
+                </div>
+              </div>
+            </W>
+          </footer>
+
+          {/* AI Chat Floating Button */}
+          <motion.button
+            onClick={() => setChatOpen(!chatOpen)}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            style={{
+              position: "fixed",
+              right: 30,
+              bottom: 30,
+              zIndex: 2001,
+              width: 56,
+              height: 56,
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              outline: "none"
+            }}
+          >
+            {chatOpen ? (
+              <div 
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: "50%",
+                  background: "#0d1019",
+                  border: "1px solid rgba(245,166,35,0.3)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
+                }}
+              >
+                <X size={24} className="text-[#F5A623]" />
+              </div>
+            ) : (
+              <div style={{ position: "relative" }}>
+                {/* Subtle Glow */}
+                <div 
+                  style={{
+                    position: "absolute",
+                    inset: -8,
+                    background: "#F5A623",
+                    filter: "blur(16px)",
+                    opacity: 0.1,
+                    borderRadius: "50%"
+                  }}
+                />
+                
+                {/* Robot Head Container */}
+                <motion.div
+                  animate={{ y: [0, -4, 0] }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {/* Ears */}
+                  <div 
+                    style={{
+                      position: "absolute",
+                      left: -4,
+                      width: 8,
+                      height: 12,
+                      background: "#F5A623",
+                      borderRadius: 3,
+                      boxShadow: "0 0 10px rgba(245,166,35,0.3)"
+                    }}
+                  />
+                  <div 
+                    style={{
+                      position: "absolute",
+                      right: -4,
+                      width: 8,
+                      height: 12,
+                      background: "#F5A623",
+                      borderRadius: 3,
+                      boxShadow: "0 0 10px rgba(245,166,35,0.3)"
+                    }}
+                  />
+
+                  {/* Main Head (Oval) */}
+                  <div
+                    style={{
+                      position: "relative",
+                      width: 48,
+                      height: 34,
+                      background: "#0d1019",
+                      border: "2px solid #F5A623",
+                      borderRadius: "18px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      boxShadow: "0 8px 20px rgba(0,0,0,0.5)",
+                      zIndex: 2
+                    }}
+                  >
+                    {/* Eyes */}
+                    <motion.div
+                      animate={{ scaleY: [1, 1, 0.1, 1, 1] }}
+                      transition={{ duration: 4, repeat: Infinity, times: [0, 0.9, 0.92, 0.94, 1] }}
+                      style={{
+                        width: 7,
+                        height: 7,
+                        background: "#F5A623",
+                        borderRadius: "50%",
+                        boxShadow: "0 0 8px #F5A623"
+                      }}
+                    />
+                    <motion.div
+                      animate={{ scaleY: [1, 1, 0.1, 1, 1] }}
+                      transition={{ duration: 4, repeat: Infinity, times: [0, 0.9, 0.92, 0.94, 1] }}
+                      style={{
+                        width: 7,
+                        height: 7,
+                        background: "#F5A623",
+                        borderRadius: "50%",
+                        boxShadow: "0 0 8px #F5A623"
+                      }}
+                    />
+                    
+                    {/* Small Highlights */}
+                    <div 
+                      style={{
+                        position: "absolute",
+                        top: 4,
+                        left: 8,
+                        width: 4,
+                        height: 4,
+                        background: "rgba(255,255,255,0.15)",
+                        borderRadius: "50%"
+                      }}
+                    />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </motion.button>
+
+          {/* AI Chat Modal */}
+          <AnimatePresence>
+            {chatOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                style={{
+                  position: "fixed",
+                  right: 30,
+                  bottom: 110,
+                  zIndex: 2000,
+                  width: 360,
+                  height: 500,
+                  transformOrigin: "bottom right",
+                }}
+                className="max-w-[calc(100vw-24px)]"
+              >
+                <AIChat onClose={() => setChatOpen(false)} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {showTop && (
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              style={{
+                position: "fixed",
+                right: 34,
+                bottom: 120,
+                zIndex: 200,
+                width: 50,
+                height: 50,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid rgba(245,166,35,.3)",
+                background: "rgba(12,14,24,.92)",
+                color: G,
+                cursor: "pointer",
+                fontSize: 20,
+                boxShadow: "0 8px 24px rgba(0,0,0,.35)",
+              }}
+            >
+              ↑
+            </button>
+          )}
+        </div>
+      )}
+    </ErrorBoundary>
+    </>
   );
 }
