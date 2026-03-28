@@ -1,6 +1,15 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+} from "firebase/auth";
 import {
   getFirestore,
   collection,
@@ -10,13 +19,13 @@ import {
   where,
   onSnapshot,
   doc,
-  updateDoc,
-  increment,
-  getDoc,
-  serverTimestamp,
-  addDoc,
   setDoc,
+  updateDoc,
+  getDoc,
+  addDoc,
   deleteDoc,
+  increment,
+  serverTimestamp,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -30,31 +39,125 @@ const firebaseConfig = {
   measurementId: "G-9CBGRJPLT4",
 };
 
-const app = initializeApp(firebaseConfig);
+let appInstance = null;
+let analyticsInstance = null;
+let authInstance = null;
+let dbInstance = null;
+let storageInstance = null;
+let googleProviderInstance = null;
 
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app);
+export const ADMIN_EMAIL = "swahilitecheliteacademy@gmail.com";
 
-let analytics = null;
-
-if (typeof window !== "undefined") {
-  isSupported()
-    .then((supported) => {
-      if (supported) {
-        analytics = getAnalytics(app);
-      }
-    })
-    .catch((error) => {
-      console.warn("Firebase analytics not supported:", error);
-    });
+export function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
 }
 
-/* =========================================================
-   Helpers expected by useFirestore.js
-========================================================= */
+export function isAdminEmail(email) {
+  const normalized = normalizeEmail(email);
+  return [
+    "swahilitecheliteacademy@gmail.com",
+    "isayamasika100@gmail.com",
+    "kukumlangoni@gmail.com",
+    "isayahans100@gmail.com",
+  ].includes(normalized);
+}
 
-export const getFirebaseDb = () => db;
+export function initFirebase() {
+  if (appInstance) {
+    return {
+      app: appInstance,
+      auth: authInstance,
+      db: dbInstance,
+      storage: storageInstance,
+      analytics: analyticsInstance,
+    };
+  }
+
+  appInstance = initializeApp(firebaseConfig);
+  authInstance = getAuth(appInstance);
+  dbInstance = getFirestore(appInstance);
+  storageInstance = getStorage(appInstance);
+  googleProviderInstance = new GoogleAuthProvider();
+
+  if (typeof window !== "undefined") {
+    isSupported()
+      .then((supported) => {
+        if (supported) {
+          analyticsInstance = getAnalytics(appInstance);
+        }
+      })
+      .catch((error) => {
+        console.warn("Analytics not supported:", error);
+      });
+  }
+
+  return {
+    app: appInstance,
+    auth: authInstance,
+    db: dbInstance,
+    storage: storageInstance,
+    analytics: analyticsInstance,
+  };
+}
+
+export function getFirebaseApp() {
+  if (!appInstance) initFirebase();
+  return appInstance;
+}
+
+export function getFirebaseAuth() {
+  if (!authInstance) initFirebase();
+  return authInstance;
+}
+
+export function getFirebaseDb() {
+  if (!dbInstance) initFirebase();
+  return dbInstance;
+}
+
+export function getFirebaseStorage() {
+  if (!storageInstance) initFirebase();
+  return storageInstance;
+}
+
+export function getGoogleProvider() {
+  if (!googleProviderInstance) initFirebase();
+  return googleProviderInstance;
+}
+
+export async function requestNotificationPermission() {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return "unsupported";
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    return permission;
+  } catch (error) {
+    console.warn("Notification permission request failed:", error);
+    return "denied";
+  }
+}
+
+export async function sendPushNotification({ title, body, icon } = {}) {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return false;
+  }
+
+  if (Notification.permission !== "granted") {
+    return false;
+  }
+
+  try {
+    new Notification(title || "STEA", {
+      body: body || "Una taarifa mpya kutoka STEA",
+      icon: icon || "/icons/icon-192.png",
+    });
+    return true;
+  } catch (error) {
+    console.warn("Local notification failed:", error);
+    return false;
+  }
+}
 
 export const OperationType = {
   CREATE: "create",
@@ -81,7 +184,7 @@ export function handleFirestoreError(error, operation = "unknown", target = "") 
     return {
       ok: false,
       code,
-      message: "Firestore service unavailable. Check internet or Firebase status.",
+      message: "Firestore unavailable. Check internet or Firebase status.",
     };
   }
 
@@ -89,7 +192,7 @@ export function handleFirestoreError(error, operation = "unknown", target = "") 
     return {
       ok: false,
       code,
-      message: "Requested Firestore document was not found.",
+      message: "Requested document not found.",
     };
   }
 
@@ -100,18 +203,22 @@ export function handleFirestoreError(error, operation = "unknown", target = "") 
   };
 }
 
-/* =========================================================
-   Main exports
-========================================================= */
+initFirebase();
 
-export { app, auth, db, storage, analytics };
-
-/* =========================================================
-   Firestore function re-exports
-   These are used by useFirestore.js and possibly other files
-========================================================= */
+export const app = getFirebaseApp();
+export const auth = getFirebaseAuth();
+export const db = getFirebaseDb();
+export const storage = getFirebaseStorage();
+export const analytics = analyticsInstance;
 
 export {
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
   collection,
   query,
   orderBy,
@@ -119,13 +226,13 @@ export {
   where,
   onSnapshot,
   doc,
-  updateDoc,
-  increment,
-  getDoc,
-  serverTimestamp,
-  addDoc,
   setDoc,
+  updateDoc,
+  getDoc,
+  addDoc,
   deleteDoc,
+  increment,
+  serverTimestamp,
 };
 
 export default app;
