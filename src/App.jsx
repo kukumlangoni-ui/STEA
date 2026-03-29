@@ -63,6 +63,7 @@ import {
 } from "./hooks/useFirestore.js";
 import AdminPanel from "./admin/AdminPanel.jsx";
 import { CategoryTabs } from "./components/CategoryTabs.jsx";
+import AIChat from "./components/AIChat.jsx";
 import ProfilePictureUpload from "./components/ProfilePictureUpload.jsx";
 
 // ── Error Boundary ───────────────────────────────────────
@@ -337,7 +338,7 @@ function LoadingScreen({ done }) {
       }}
     >
       <img 
-        src="/stea-logo-animated.jpg" 
+        src="/stea-icon.png" 
         alt="Loading STEA" 
         className="stea-loader-logo" 
         referrerPolicy="no-referrer"
@@ -1861,115 +1862,176 @@ function AuthModal({ onClose, onUser }) {
 function UserChip({ user, onLogout, onAdmin, onProfile }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
-  
+
   useEffect(() => {
-    const fn = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("click", fn);
-    return () => document.removeEventListener("click", fn);
+    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
   }, []);
 
   const ini = (user.displayName || user.email || "S")[0].toUpperCase();
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+      {/* Avatar Button — fixed size, no overflow */}
       <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-[42px] h-[42px] rounded-xl border-2 border-[#F5A623] overflow-hidden bg-transparent p-0 cursor-pointer flex items-center justify-center flex-shrink-0 transition-transform active:scale-95"
+        onClick={() => setOpen(v => !v)}
+        style={{
+          width: 38, height: 38,
+          borderRadius: "50%",
+          border: open ? "2px solid #F5A623" : "2px solid rgba(245,166,35,0.4)",
+          background: "transparent",
+          padding: 0, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0, overflow: "hidden",
+          transition: "border-color 0.2s, transform 0.15s",
+          transform: open ? "scale(0.95)" : "scale(1)",
+          outline: "none",
+        }}
       >
         {user.photoURL ? (
-          <img 
-            src={user.photoURL} 
-            alt={user.displayName} 
-            className="w-full h-full object-cover"
+          <img
+            src={user.photoURL}
+            alt=""
             referrerPolicy="no-referrer"
+            style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%", display: "block" }}
+            onError={e => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }}
           />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#F5A623] to-[#FFD17C] text-[#111] font-black text-lg">
-            {ini}
-          </div>
-        )}
+        ) : null}
+        <div style={{
+          width: "100%", height: "100%", borderRadius: "50%",
+          background: "linear-gradient(135deg, #F5A623, #FFD17C)",
+          display: user.photoURL ? "none" : "flex",
+          alignItems: "center", justifyContent: "center",
+          color: "#111", fontWeight: 900, fontSize: 15, flexShrink: 0,
+        }}>
+          {ini}
+        </div>
       </button>
 
+      {/* Dropdown — portal-positioned, no layout impact */}
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute right-0 top-[calc(100%+12px)] w-64 bg-[#0e101a]/98 border border-white/10 rounded-2xl shadow-2xl p-2 z-[1000] backdrop-blur-xl"
+            exit={{ opacity: 0, y: 8, scale: 0.96 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            style={{
+              position: "fixed",
+              top: 72,
+              right: 12,
+              width: 240,
+              background: "rgba(10,11,18,0.98)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 18,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(245,166,35,0.06)",
+              padding: 8,
+              zIndex: 9999,
+              backdropFilter: "blur(24px)",
+            }}
           >
-            {/* User Info Section */}
-            <div className="p-3 mb-2 bg-white/5 rounded-xl border border-white/5">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 border border-white/10">
+            {/* User info header */}
+            <div style={{
+              padding: "10px 12px 12px",
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              marginBottom: 6,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: "50%", overflow: "hidden",
+                  flexShrink: 0, border: "1.5px solid rgba(245,166,35,0.3)",
+                }}>
                   {user.photoURL ? (
-                    <img src={user.photoURL} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={user.photoURL} referrerPolicy="no-referrer"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-[#F5A623]/20 text-[#F5A623] font-bold">
-                      {ini}
-                    </div>
+                    <div style={{
+                      width: "100%", height: "100%",
+                      background: "linear-gradient(135deg, #F5A623, #FFD17C)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "#111", fontWeight: 900, fontSize: 14,
+                    }}>{ini}</div>
                   )}
                 </div>
-                <div className="min-w-0">
-                  <div className="font-black text-sm text-white truncate">
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {user.displayName || "STEA User"}
                   </div>
-                  <div className="text-[10px] text-white/40 truncate">
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {user.email}
                   </div>
                 </div>
               </div>
               {user.role === "admin" && (
-                <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#F5A623]/10 border border-[#F5A623]/20 text-[#F5A623] text-[9px] font-black uppercase tracking-wider">
-                  <Shield size={10} /> Admin
+                <div style={{
+                  marginTop: 8, display: "inline-flex", alignItems: "center", gap: 4,
+                  padding: "3px 10px", borderRadius: 99,
+                  background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)",
+                  color: "#F5A623", fontSize: 9, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.1em",
+                }}>
+                  <Shield size={9} /> Admin
                 </div>
               )}
             </div>
 
-            <div className="space-y-1">
-              <button
-                onClick={() => { onProfile(); setOpen(false); }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 text-white/70 hover:text-white transition-all text-sm font-bold group"
+            {/* Menu items */}
+            {[
+              { icon: <User size={15} />, label: "Profile Yangu", action: () => { onProfile(); setOpen(false); } },
+              ...(user.role === "admin" ? [{ icon: <Shield size={15} />, label: "Admin Panel", action: () => { onAdmin(); setOpen(false); } }] : []),
+            ].map(item => (
+              <button key={item.label} onClick={item.action}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 10,
+                  padding: "10px 12px", borderRadius: 12,
+                  border: "none", background: "transparent",
+                  color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", textAlign: "left", transition: "all 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#fff"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.7)"; }}
               >
-                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-[#F5A623]/10 group-hover:text-[#F5A623] transition-colors">
-                  <User size={16} />
+                <div style={{
+                  width: 30, height: 30, borderRadius: 9, flexShrink: 0,
+                  background: "rgba(255,255,255,0.05)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "#F5A623",
+                }}>
+                  {item.icon}
                 </div>
-                Profile Yangu
+                {item.label}
               </button>
+            ))}
 
-              {user.role === "admin" && (
-                <button
-                  onClick={() => { onAdmin(); setOpen(false); }}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 text-white/70 hover:text-white transition-all text-sm font-bold group"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-[#F5A623]/10 group-hover:text-[#F5A623] transition-colors">
-                    <Shield size={16} />
-                  </div>
-                  Admin Panel
-                </button>
-              )}
+            <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "4px 0" }} />
 
-              <div className="h-px bg-white/5 my-1" />
-
-              <button
-                onClick={() => { onLogout(); setOpen(false); }}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-red-500/10 text-red-400 hover:text-red-300 transition-all text-sm font-bold group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-red-500/5 flex items-center justify-center group-hover:bg-red-500/20 transition-colors">
-                  <LogOut size={16} />
-                </div>
-                Logout
-              </button>
-            </div>
+            <button onClick={() => { onLogout(); setOpen(false); }}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 10,
+                padding: "10px 12px", borderRadius: 12,
+                border: "none", background: "transparent",
+                color: "rgba(239,68,68,0.8)", fontSize: 13, fontWeight: 700,
+                cursor: "pointer", textAlign: "left", transition: "all 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; e.currentTarget.style.color = "#ef4444"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(239,68,68,0.8)"; }}
+            >
+              <div style={{
+                width: 30, height: 30, borderRadius: 9, flexShrink: 0,
+                background: "rgba(239,68,68,0.06)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#ef4444",
+              }}>
+                <LogOut size={15} />
+              </div>
+              Logout
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
   );
 }
-
 function ProfileModal({ user, onClose, onUpdate }) {
   const [name, setName] = useState(user.displayName || "");
   const [saving, setSaving] = useState(false);
@@ -5101,7 +5163,7 @@ function CreatorSection({ goPage, siteSettings }) {
     title: "Founder & Developer",
     shortBio: "Tanzanian tech creator na web developer.",
     fullBio: "Isaya Hans Masika ni Tanzanian tech creator na web developer, asili yake ikiwa ni mkoani Mbeya na kwa sasa anaishi nchini China. Anashikilia Shahada ya Uzamili (Bachelor’s Degree) katika Computer Science kutoka Guilin University of Electronic Technology, China. Safari yake ya elimu ilianzia Wazo Hill Primary School, akaendelea Mbezi Beach Secondary School, na baadaye Lugufu Boys Secondary School. Isaya ana shauku kubwa na teknolojia, AI, na kujenga majukwaa ya kidijitali yanayosaidia watu kupata maarifa kwa lugha ya Kiswahili.",
-    imageUrl: "/stea-icon.jpg",
+    imageUrl: "/stea-icon.png",
     imageAlt: "Isaya Hans Masika",
     contactText: "Contact Creator"
   };
@@ -6290,7 +6352,7 @@ function HomePage({ goPage, settings = {} }) {
         <WhatsAppCTA link={settings.contact_info?.whatsapp} />
 
         {/* Featured Tech Tips */}
-        {featuredTips.length > 0 && (
+        {(tipsLoading || featuredTips.length > 0) && (
           <div style={{ marginTop: 80 }}>
             <div
               style={{
@@ -6355,7 +6417,7 @@ function HomePage({ goPage, settings = {} }) {
         )}
 
         {/* Featured Tech Updates */}
-        {featuredUpdates.length > 0 && (
+        {(updatesLoading || featuredUpdates.length > 0) && (
           <div style={{ marginTop: 80 }}>
             <div
               style={{
@@ -6411,7 +6473,7 @@ function HomePage({ goPage, settings = {} }) {
         )}
 
         {/* Featured Courses */}
-        {featuredCourses.length > 0 && (
+        {(coursesLoading || featuredCourses.length > 0) && (
           <div style={{ marginTop: 80 }}>
             <div
               style={{
@@ -6849,337 +6911,108 @@ function HomePage({ goPage, settings = {} }) {
 // ════════════════════════════════════════════════════
 function AIAssistant() {
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "Habari! Mimi ni msaidizi wa STEA 🤖 Unaweza kuniuliza kuhusu courses, deals, tech tips, au chochote unachohitaji kujua!",
-    },
-  ]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const bottomRef = useRef(null);
-  const inputRef = useRef(null);
 
+  // Prevent body scroll when chat is open on mobile
   useEffect(() => {
-    if (open && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    if (open && window.innerWidth < 640) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
     }
-  }, [messages, open]);
-
-  useEffect(() => {
-    if (open && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 200);
-    }
+    return () => { document.body.style.overflow = ""; };
   }, [open]);
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text || loading) return;
-    setInput("");
-    setError(null);
-
-    const newMessages = [...messages, { role: "user", content: text }];
-    setMessages(newMessages);
-    setLoading(true);
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 600,
-          system:
-            "Wewe ni msaidizi wa STEA (SwahiliTech Elite Academy) — jukwaa la tech kwa Watanzania. Jibu kwa Kiswahili rahisi na kwa ufupi. Saidia watumiaji kuhusu: courses za tech, deals, tech tips, websites, AI prompts, na kutumia STEA. Kama hujui jibu, sema ukweli na pendekeza kuwasiliana na support kupitia WhatsApp.",
-          messages: newMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      });
-
-      if (!res.ok) throw new Error("API error");
-      const data = await res.json();
-      const reply = data?.content?.[0]?.text || "Samahani, sijapata jibu. Tafadhali jaribu tena.";
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-    } catch (e) {
-      setError("Samahani, kuna tatizo kidogo — tafadhali jaribu tena au tumia WhatsApp support.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleKey = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
 
   return (
     <Portal>
-      {/* Chat Panel */}
+      {/* ── Chat Panel ── */}
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            key="stea-chat-panel"
+            initial={{ opacity: 0, y: 16, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
+            exit={{ opacity: 0, y: 16, scale: 0.97 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             style={{
               position: "fixed",
-              bottom: 90,
+              bottom: 88,
               right: 20,
-              width: "min(380px, calc(100vw - 32px))",
-              height: "min(520px, calc(100vh - 120px))",
-              background: "#0e101a",
-              border: "1px solid rgba(245,166,35,0.25)",
+              width: "min(420px, calc(100vw - 24px))",
+              height: "min(600px, calc(100vh - 110px))",
+              zIndex: 9000,
               borderRadius: 24,
-              boxShadow: "0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(245,166,35,0.08)",
-              display: "flex",
-              flexDirection: "column",
               overflow: "hidden",
-              zIndex: 8000,
-              fontFamily: "'Instrument Sans', system-ui, sans-serif",
+              boxShadow: "0 32px 80px rgba(0,0,0,0.75), 0 0 0 1px rgba(245,166,35,0.15)",
+              border: "1px solid rgba(245,166,35,0.15)",
             }}
           >
-            {/* Header */}
-            <div
-              style={{
-                padding: "16px 18px",
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
-                background: "linear-gradient(135deg, rgba(245,166,35,0.1), rgba(255,209,124,0.05))",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 12,
-                    background: "linear-gradient(135deg, #F5A623, #FFD17C)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Bot size={20} color="#111" />
-                </div>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 14, color: "#fff" }}>
-                    STEA Assistant
-                  </div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>
-                    {loading ? "Inaandika..." : "Mtandaoni"}
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setOpen(false)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 10,
-                  border: "none",
-                  background: "rgba(255,255,255,0.06)",
-                  color: "rgba(255,255,255,0.5)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Messages */}
-            <div
-              style={{
-                flex: 1,
-                overflowY: "auto",
-                padding: "16px",
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                scrollbarWidth: "none",
-              }}
-            >
-              {messages.map((m, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-                  }}
-                >
-                  <div
-                    style={{
-                      maxWidth: "82%",
-                      padding: "10px 14px",
-                      borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                      background:
-                        m.role === "user"
-                          ? "linear-gradient(135deg, #F5A623, #FFD17C)"
-                          : "rgba(255,255,255,0.05)",
-                      color: m.role === "user" ? "#111" : "rgba(255,255,255,0.88)",
-                      fontSize: 13,
-                      fontWeight: m.role === "user" ? 700 : 500,
-                      lineHeight: 1.6,
-                      border: m.role === "assistant" ? "1px solid rgba(255,255,255,0.07)" : "none",
-                    }}
-                  >
-                    {m.content}
-                  </div>
-                </div>
-              ))}
-              {loading && (
-                <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                  <div
-                    style={{
-                      padding: "10px 16px",
-                      borderRadius: "18px 18px 18px 4px",
-                      background: "rgba(255,255,255,0.05)",
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      display: "flex",
-                      gap: 4,
-                      alignItems: "center",
-                    }}
-                  >
-                    {[0, 1, 2].map((i) => (
-                      <div
-                        key={i}
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                          background: "#F5A623",
-                          animation: `blink 1.2s ${i * 0.2}s infinite`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {error && (
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 12,
-                    background: "rgba(239,68,68,0.1)",
-                    border: "1px solid rgba(239,68,68,0.2)",
-                    color: "#fca5a5",
-                    fontSize: 12,
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {error}
-                </div>
-              )}
-              <div ref={bottomRef} />
-            </div>
-
-            {/* Input */}
-            <div
-              style={{
-                padding: "12px 16px",
-                borderTop: "1px solid rgba(255,255,255,0.06)",
-                display: "flex",
-                gap: 10,
-                flexShrink: 0,
-                background: "rgba(255,255,255,0.02)",
-              }}
-            >
-              <input
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKey}
-                placeholder="Uliza swali lolote..."
-                style={{
-                  flex: 1,
-                  height: 42,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  background: "rgba(255,255,255,0.05)",
-                  color: "#fff",
-                  padding: "0 14px",
-                  outline: "none",
-                  fontSize: 13,
-                  fontFamily: "inherit",
-                }}
-                onFocus={(e) => (e.target.style.borderColor = "#F5A623")}
-                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.1)")}
-              />
-              <button
-                onClick={send}
-                disabled={!input.trim() || loading}
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 12,
-                  border: "none",
-                  background:
-                    input.trim() && !loading
-                      ? "linear-gradient(135deg, #F5A623, #FFD17C)"
-                      : "rgba(255,255,255,0.07)",
-                  color: input.trim() && !loading ? "#111" : "rgba(255,255,255,0.2)",
-                  cursor: input.trim() && !loading ? "pointer" : "not-allowed",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  transition: "all 0.2s",
-                }}
-              >
-                <Send size={17} />
-              </button>
-            </div>
+            <AIChat onClose={() => setOpen(false)} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Floating Trigger Button */}
+      {/* ── Floating Trigger Button ── */}
       <motion.button
         whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.94 }}
-        onClick={() => setOpen((v) => !v)}
+        whileTap={{ scale: 0.92 }}
+        onClick={() => setOpen(v => !v)}
         style={{
           position: "fixed",
           bottom: 24,
           right: 20,
-          width: 56,
-          height: 56,
-          borderRadius: 18,
+          width: 58,
+          height: 58,
+          borderRadius: 20,
           border: "none",
           background: open
-            ? "rgba(255,255,255,0.1)"
+            ? "rgba(255,255,255,0.12)"
             : "linear-gradient(135deg, #F5A623, #FFD17C)",
           color: open ? "#fff" : "#111",
           cursor: "pointer",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          zIndex: 8001,
+          zIndex: 9001,
           boxShadow: open
             ? "0 8px 24px rgba(0,0,0,0.4)"
-            : "0 8px 24px rgba(245,166,35,0.4)",
-          transition: "all 0.25s ease",
-          fontFamily: "inherit",
+            : "0 8px 28px rgba(245,166,35,0.45), 0 2px 8px rgba(0,0,0,0.3)",
+          transition: "background 0.25s, box-shadow 0.25s, color 0.25s",
         }}
-        aria-label="AI Assistant"
+        aria-label="STEA AI Assistant"
       >
-        {open ? <X size={22} /> : <Bot size={24} />}
+        {open
+          ? <X size={22} />
+          : <Bot size={26} />
+        }
       </motion.button>
+
+      {/* ── Pulse ring (draws attention when closed) ── */}
+      {!open && (
+        <div style={{
+          position: "fixed",
+          bottom: 24,
+          right: 20,
+          width: 58,
+          height: 58,
+          borderRadius: 20,
+          border: "2px solid rgba(245,166,35,0.35)",
+          zIndex: 8999,
+          pointerEvents: "none",
+          animation: "steaRingPulse 2.5s ease-out infinite",
+        }} />
+      )}
+
+      <style>{`
+        @keyframes steaRingPulse {
+          0% { transform: scale(1); opacity: 0.6; }
+          70% { transform: scale(1.35); opacity: 0; }
+          100% { transform: scale(1.35); opacity: 0; }
+        }
+      `}</style>
     </Portal>
   );
 }
+
 
 export default function App() {
   const [page, setPage] = useState("home");
@@ -7560,7 +7393,7 @@ export default function App() {
                 }}
               >
                 <img 
-                  src="/stea-icon.jpg" 
+                  src="/stea-icon.png" 
                   alt="STEA Logo" 
                   className="stea-navbar-logo" 
                   referrerPolicy="no-referrer"
@@ -7986,7 +7819,7 @@ export default function App() {
                     }}
                   >
                     <img 
-                      src="/stea-icon.jpg" 
+                      src="/stea-icon.png" 
                       alt="STEA Logo" 
                       className="stea-footer-logo" 
                       referrerPolicy="no-referrer"
