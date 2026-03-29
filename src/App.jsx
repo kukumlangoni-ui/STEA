@@ -5,6 +5,7 @@ import { InstallPrompt } from "./components/InstallPrompt";
 import { motion, AnimatePresence } from "motion/react";
 import {
   AlertCircle,
+  CheckCircle,
   Copy,
   Download,
   Maximize2,
@@ -20,6 +21,7 @@ import {
   HelpCircle,
   ShieldCheck,
   MessageCircle,
+  Bot,
   X,
   User,
   Shield,
@@ -51,8 +53,8 @@ import {
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  limit,
 } from "./firebase.js";
-import { limit } from "firebase/firestore";
 import {
   useCollection,
   incrementViews,
@@ -61,6 +63,7 @@ import {
 } from "./hooks/useFirestore.js";
 import AdminPanel from "./admin/AdminPanel.jsx";
 import { CategoryTabs } from "./components/CategoryTabs.jsx";
+import ProfilePictureUpload from "./components/ProfilePictureUpload.jsx";
 
 // ── Error Boundary ───────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -6841,7 +6844,342 @@ function HomePage({ goPage, settings = {} }) {
 // ROOT APP
 // ════════════════════════════════════════════════════
 
-import ProfilePictureUpload from "./components/ProfilePictureUpload";
+// ════════════════════════════════════════════════════
+// AI ASSISTANT — Global Floating Robot (Phase 7)
+// ════════════════════════════════════════════════════
+function AIAssistant() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    {
+      role: "assistant",
+      content: "Habari! Mimi ni msaidizi wa STEA 🤖 Unaweza kuniuliza kuhusu courses, deals, tech tips, au chochote unachohitaji kujua!",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (open && bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, open]);
+
+  useEffect(() => {
+    if (open && inputRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 200);
+    }
+  }, [open]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput("");
+    setError(null);
+
+    const newMessages = [...messages, { role: "user", content: text }];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 600,
+          system:
+            "Wewe ni msaidizi wa STEA (SwahiliTech Elite Academy) — jukwaa la tech kwa Watanzania. Jibu kwa Kiswahili rahisi na kwa ufupi. Saidia watumiaji kuhusu: courses za tech, deals, tech tips, websites, AI prompts, na kutumia STEA. Kama hujui jibu, sema ukweli na pendekeza kuwasiliana na support kupitia WhatsApp.",
+          messages: newMessages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
+      });
+
+      if (!res.ok) throw new Error("API error");
+      const data = await res.json();
+      const reply = data?.content?.[0]?.text || "Samahani, sijapata jibu. Tafadhali jaribu tena.";
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch (e) {
+      setError("Samahani, kuna tatizo kidogo — tafadhali jaribu tena au tumia WhatsApp support.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  return (
+    <Portal>
+      {/* Chat Panel */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+            style={{
+              position: "fixed",
+              bottom: 90,
+              right: 20,
+              width: "min(380px, calc(100vw - 32px))",
+              height: "min(520px, calc(100vh - 120px))",
+              background: "#0e101a",
+              border: "1px solid rgba(245,166,35,0.25)",
+              borderRadius: 24,
+              boxShadow: "0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(245,166,35,0.08)",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              zIndex: 8000,
+              fontFamily: "'Instrument Sans', system-ui, sans-serif",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                padding: "16px 18px",
+                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                background: "linear-gradient(135deg, rgba(245,166,35,0.1), rgba(255,209,124,0.05))",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 12,
+                    background: "linear-gradient(135deg, #F5A623, #FFD17C)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Bot size={20} color="#111" />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: "#fff" }}>
+                    STEA Assistant
+                  </div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>
+                    {loading ? "Inaandika..." : "Mtandaoni"}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 10,
+                  border: "none",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "rgba(255,255,255,0.5)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                scrollbarWidth: "none",
+              }}
+            >
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+                  }}
+                >
+                  <div
+                    style={{
+                      maxWidth: "82%",
+                      padding: "10px 14px",
+                      borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+                      background:
+                        m.role === "user"
+                          ? "linear-gradient(135deg, #F5A623, #FFD17C)"
+                          : "rgba(255,255,255,0.05)",
+                      color: m.role === "user" ? "#111" : "rgba(255,255,255,0.88)",
+                      fontSize: 13,
+                      fontWeight: m.role === "user" ? 700 : 500,
+                      lineHeight: 1.6,
+                      border: m.role === "assistant" ? "1px solid rgba(255,255,255,0.07)" : "none",
+                    }}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                  <div
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: "18px 18px 18px 4px",
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(255,255,255,0.07)",
+                      display: "flex",
+                      gap: 4,
+                      alignItems: "center",
+                    }}
+                  >
+                    {[0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: "#F5A623",
+                          animation: `blink 1.2s ${i * 0.2}s infinite`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {error && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 12,
+                    background: "rgba(239,68,68,0.1)",
+                    border: "1px solid rgba(239,68,68,0.2)",
+                    color: "#fca5a5",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {error}
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Input */}
+            <div
+              style={{
+                padding: "12px 16px",
+                borderTop: "1px solid rgba(255,255,255,0.06)",
+                display: "flex",
+                gap: 10,
+                flexShrink: 0,
+                background: "rgba(255,255,255,0.02)",
+              }}
+            >
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKey}
+                placeholder="Uliza swali lolote..."
+                style={{
+                  flex: 1,
+                  height: 42,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.05)",
+                  color: "#fff",
+                  padding: "0 14px",
+                  outline: "none",
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                }}
+                onFocus={(e) => (e.target.style.borderColor = "#F5A623")}
+                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.1)")}
+              />
+              <button
+                onClick={send}
+                disabled={!input.trim() || loading}
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 12,
+                  border: "none",
+                  background:
+                    input.trim() && !loading
+                      ? "linear-gradient(135deg, #F5A623, #FFD17C)"
+                      : "rgba(255,255,255,0.07)",
+                  color: input.trim() && !loading ? "#111" : "rgba(255,255,255,0.2)",
+                  cursor: input.trim() && !loading ? "pointer" : "not-allowed",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  transition: "all 0.2s",
+                }}
+              >
+                <Send size={17} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Trigger Button */}
+      <motion.button
+        whileHover={{ scale: 1.08 }}
+        whileTap={{ scale: 0.94 }}
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          position: "fixed",
+          bottom: 24,
+          right: 20,
+          width: 56,
+          height: 56,
+          borderRadius: 18,
+          border: "none",
+          background: open
+            ? "rgba(255,255,255,0.1)"
+            : "linear-gradient(135deg, #F5A623, #FFD17C)",
+          color: open ? "#fff" : "#111",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 8001,
+          boxShadow: open
+            ? "0 8px 24px rgba(0,0,0,0.4)"
+            : "0 8px 24px rgba(245,166,35,0.4)",
+          transition: "all 0.25s ease",
+          fontFamily: "inherit",
+        }}
+        aria-label="AI Assistant"
+      >
+        {open ? <X size={22} /> : <Bot size={24} />}
+      </motion.button>
+    </Portal>
+  );
+}
 
 export default function App() {
   const [page, setPage] = useState("home");
@@ -7840,6 +8178,9 @@ export default function App() {
               onUpdate={(u) => setUser(u)}
             />
           )}
+
+          {/* AI Assistant — always visible globally */}
+          <AIAssistant />
         </div>
       )}
     </ErrorBoundary>
