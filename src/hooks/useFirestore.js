@@ -168,7 +168,7 @@ export function timeAgo(timestamp) {
   if (interval > 1) return Math.floor(interval) + (Math.floor(interval) === 1 ? " day ago" : " days ago");
   
   interval = seconds / 3600;
-  if (interval > 1) return Math.floor(interval)_owner + (Math.floor(interval) === 1 ? " hour ago" : " hours ago");
+  if (interval > 1) return Math.floor(interval) + (Math.floor(interval) === 1 ? " hour ago" : " hours ago");
   
   interval = seconds / 60;
   if (interval > 1) return Math.floor(interval) + (Math.floor(interval) === 1 ? " minute ago" : " minutes ago");
