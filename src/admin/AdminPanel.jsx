@@ -103,8 +103,6 @@ function ConfirmDialog({ msg, onConfirm, onCancel }) {
   );
 }
 
-import ImageEditor from './ImageEditor.jsx';
-
 function ImageUploadField({ label, value, onChange }) {
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -310,7 +308,7 @@ function TechContentManager({ collectionName }) {
           {["article","video"].map(t=>(
             <button key={t} onClick={()=>{setTab(t);setForm(f=>({...f,type:t}));}}
               style={{ border:"none", borderRadius:10, padding:"9px 18px", cursor:"pointer", fontWeight:800, fontSize:13,
-                background:tab===t?`linear-gradient(135deg,${G},${G2})`:"rgba(255,255,255,.06)", color:tab===t?"#111":"rgba(255,255,255,.6)" }}>
+                background:tab===t?`linear-gradient(135deg,${G},${G2})`: "rgba(255,255,255,.06)", color:tab===t?"#111":"rgba(255,255,255,.6)" }}>
               {t==="article"?"📝 Article":"🎬 Video"}
             </button>
           ))}
