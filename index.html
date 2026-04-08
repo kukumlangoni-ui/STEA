@@ -1,23 +1,44 @@
 <!doctype html>
-<html lang="en">
+<html lang="sw">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/jpeg" href="/stea-icon.jpg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#05060a" />
+
+    <!-- Apple PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="STEA" />
+
+    <!-- SEO -->
+    <title>SwahiliTech Elite Academy — STEA</title>
+    <meta name="description" content="Teknolojia kwa Kiswahili 🇹🇿 — Tech Tips, Courses, Deals na AI kwa Watanzania." />
+
+    <!-- Favicons — PNG (primary, all browsers) -->
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#050816" />
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/service-worker.js');
-        });
-      }
-    </script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>STEA - SwahiliTech Elite Academy</title>
+
+    <!-- Fallback SVG favicon (kama bado ipo) -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Google Fonts preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <style>
+      html, body { background: #05060a; margin: 0; padding: 0; }
+      html { height: -webkit-fill-available; }
+      body { min-height: 100vh; min-height: -webkit-fill-available; overflow-x: hidden; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
-
