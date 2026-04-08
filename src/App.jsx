@@ -7371,7 +7371,7 @@ export default function App() {
                 }}
               >
                 <img 
-                  src="/stea-icon.jpg" 
+                  src="/logo-icon.png" 
                   alt="STEA Logo" 
                   className="stea-navbar-logo" 
                   referrerPolicy="no-referrer"
@@ -7381,7 +7381,7 @@ export default function App() {
                     borderRadius: 8,
                     objectFit: "cover"
                   }}
-                  onError={(e) => { e.target.style.display = 'none'; }}
+                  onError={(e) => { e.target.src = '/stea-icon.jpg'; }}
                 />
                 <div>
                   <strong
