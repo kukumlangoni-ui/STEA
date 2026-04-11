@@ -1,26 +1,37 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => {
+  // Pakia environment variables kulingana na "mode" (production/development)
+  const env = loadEnv(mode, process.cwd(), '');
+
   return {
     base: '/',
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+    ],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY),
-      'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
+      // Tunatumia env variable tuliyopakia hapo juu badala ya process.env ya kawaida
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
+      'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        // Inahakikisha '@' inatambua root directory yako vizuri
+        '@': path.resolve(__dirname, './src'),
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // HMR (Hot Module Replacement)
       hmr: process.env.DISABLE_HMR !== 'true',
     },
+    build: {
+      // Inasaidia kuepuka matatizo ya "Chunk size" kwenye Cloudflare
+      chunkSizeWarningLimit: 1000,
+    }
   };
 });
