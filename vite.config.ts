@@ -3,9 +3,8 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Pakia environment variables kulingana na "mode" (production/development)
+  // Pakia env variables kutoka kwa mfumo (Cloudflare/Local)
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
@@ -15,23 +14,22 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
     ],
     define: {
-      // Tunatumia env variable tuliyopakia hapo juu badala ya process.env ya kawaida
+      // Inahakikisha Firebase na Gemini keys zako zinatambulika
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
+      'process.env.VITE_FIREBASE_API_KEY': JSON.stringify(env.VITE_FIREBASE_API_KEY || ''),
     },
     resolve: {
       alias: {
-        // Inahakikisha '@' inatambua root directory yako vizuri
         '@': path.resolve(__dirname, './src'),
       },
     },
     server: {
-      // HMR (Hot Module Replacement)
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     build: {
-      // Inasaidia kuepuka matatizo ya "Chunk size" kwenye Cloudflare
       chunkSizeWarningLimit: 1000,
+      outDir: 'dist'
     }
   };
 });
