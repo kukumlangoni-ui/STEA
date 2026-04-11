@@ -4,7 +4,6 @@ import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {
-  // Pakia env variables kutoka kwa mfumo (Cloudflare/Local)
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
@@ -14,7 +13,6 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
     ],
     define: {
-      // Inahakikisha Firebase na Gemini keys zako zinatambulika
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
       'process.env.VITE_FIREBASE_API_KEY': JSON.stringify(env.VITE_FIREBASE_API_KEY || ''),
@@ -28,8 +26,23 @@ export default defineConfig(({ mode }) => {
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     build: {
-      chunkSizeWarningLimit: 1000,
-      outDir: 'dist'
-    }
+      outDir: 'dist',
+      sourcemap: false,
+      chunkSizeWarningLimit: 1500,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom'],
+            firebase: [
+              'firebase/app',
+              'firebase/auth',
+              'firebase/firestore',
+              'firebase/storage',
+              'firebase/messaging',
+            ],
+          },
+        },
+      },
+    },
   };
 });
