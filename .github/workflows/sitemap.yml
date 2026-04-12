@@ -3,7 +3,7 @@ name: Generate XML Sitemap
 on:
   push:
     branches:
-      - main  # or 'master' depending on your default branch name
+      - main
 
 jobs:
   sitemap_job:
@@ -21,6 +21,7 @@ jobs:
         base-url-path: https://stea.africa/
         path-to-root: .
         additional-extensions: html
+        drop-html-extension: true
 
     - name: Commit and push sitemap
       run: |
@@ -29,4 +30,3 @@ jobs:
         git add sitemap.xml
         git commit -m "Automated sitemap update" || exit 0
         git push
-
