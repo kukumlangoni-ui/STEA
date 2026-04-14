@@ -31,78 +31,7 @@ import NewHomePage from "./pages/HomePage.jsx";
 import EmptyState from "./components/EmptyState";
 import { jsPDF } from "jspdf";
 import confetti from "canvas-confetti";
-import { firebaseConfig } from "../firebaseConfig.js";
-
-// --- Debug Component ---
-function FirestoreDebug() {
-  const [logs, setLogs] = useState(["Initializing debug..."]);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const runDebug = async () => {
-      const newLogs = [];
-      const addLog = (msg) => {
-        newLogs.push(msg);
-        setLogs([...newLogs]);
-      };
-
-      addLog(`Project ID: ${firebaseConfig.projectId}`);
-      addLog(`Database ID: ${firebaseConfig.firestoreDatabaseId || "(default)"}`);
-      
-      const db = getFirebaseDb();
-      const auth = getFirebaseAuth();
-      if (!db) {
-        addLog("❌ ERROR: getFirebaseDb() returned null");
-        return;
-      }
-
-      addLog(`Auth Status: ${auth.currentUser ? `Logged in as ${auth.currentUser.email}` : "Not logged in (Admin collections will fail)"}`);
-
-      const collectionsToTest = [
-        "posts", "updates", "news", "tips", "marketplace", 
-        "products", "courses", "websites", "prompts", "users"
-      ];
-
-      for (const colName of collectionsToTest) {
-        try {
-          addLog(`Fetching ${colName}...`);
-          const snapshot = await getDocs(collection(db, colName));
-          addLog(`✅ [${colName}] Count: ${snapshot.size}`);
-          if (snapshot.size > 0) {
-            addLog(`   └─ Sample keys: ${Object.keys(snapshot.docs[0].data()).join(", ")}`);
-          }
-        } catch (error) {
-          addLog(`❌ [${colName}] Error: ${error.message}`);
-        }
-      }
-      addLog("Debug complete.");
-    };
-    runDebug();
-  }, [open]);
-
-  if (!open) {
-    return (
-      <button 
-        onClick={() => setOpen(true)}
-        style={{ position: "fixed", top: 10, left: 10, zIndex: 9999, background: "red", color: "white", padding: "4px 8px", fontSize: 10, borderRadius: 4, border: "none" }}
-      >
-        Debug DB
-      </button>
-    );
-  }
-
-  return (
-    <div style={{ position: "fixed", top: 10, left: 10, zIndex: 9999, background: "rgba(0,0,0,0.9)", color: "#0f0", padding: 16, borderRadius: 8, border: "1px solid #0f0", maxWidth: "90vw", maxHeight: "80vh", overflow: "auto", fontFamily: "monospace", fontSize: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-        <strong style={{ color: "white" }}>Firestore Debug</strong>
-        <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "red", cursor: "pointer" }}>Close</button>
-      </div>
-      {logs.map((log, i) => <div key={i} style={{ marginBottom: 4 }}>{log}</div>)}
-    </div>
-  );
-}
-// -----------------------
+import { firebaseConfig } from "../firebaseConfig.js"
 
 import {
   initFirebase,
@@ -5708,7 +5637,6 @@ export default function App() {
                   <svg
                     width="40"
                     height="40"
-                    viewBox="0 0 24 24"
                     fill="none"
                     stroke="#111"
                     strokeWidth="2.5"
