@@ -267,7 +267,7 @@ function MiniCard({ item, onRead, onPlay }) {
 // ─────────────────────────────────────────────────────
 export default function HomePage({ goPage }) {
   const isMobile = useMobile();
-  const communityLink = "https://wa.me/255971585204";
+  const communityLink = "https://wa.me/8619715852043";
   const heroRef = useRef(null);
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const heroY = useTransform(scrollYProgress, [0, 1], ["0%", "18%"]);
