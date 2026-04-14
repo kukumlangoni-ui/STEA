@@ -14,10 +14,10 @@ const CARD = "#0d0f1a";
 const BORDER = "rgba(255,255,255,0.07)";
 const BLUE = "#3B82F6";
 
-const WA_LINK = "https://wa.me/255971585204?text=" + encodeURIComponent(
+const WA_LINK = "https://wa.me/8619715852043?text=" + encodeURIComponent(
   "Habari STEA! Nahitaji msaada wa VPN. Ninaenda [eleza hali yako]."
 );
-const WA_SETUP = "https://wa.me/255971585204?text=" + encodeURIComponent(
+const WA_SETUP = "https://wa.me/8619715852043?text=" + encodeURIComponent(
   "Habari STEA! Nahitaji setup help ya VPN. Kifaa changu ni [eleza] na ninaenda [nchi]."
 );
 
