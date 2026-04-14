@@ -32,10 +32,10 @@ const PURPLE = "#8b5cf6";
 const RED    = "#ef4444";
 
 // ── WhatsApp links ────────────────────────────────────────────────────────────
-const WA_MAIN  = "https://wa.me/255971585204?text=" + encodeURIComponent("Habari STEA! Nahitaji msaada wa kutuma pesa nje ya nchi. Tafadhali niongoze.");
-const WA_CHINA = "https://wa.me/255971585204?text=" + encodeURIComponent("Habari STEA! Nahitaji msaada wa kutuma pesa China. Ninaomba mwongozo.");
-const WA_RATE  = "https://wa.me/255971585204?text=" + encodeURIComponent("Habari STEA! Ningependa kujua rate ya leo ya kubadilisha pesa. Tafadhali nisaidie.");
-const WA_SAFE  = "https://wa.me/255971585204?text=" + encodeURIComponent("Habari STEA! Nahitaji ushauri wa njia salama ya kutuma pesa nje ya nchi.");
+const WA_MAIN  = "https://wa.me/8619715852043?text=" + encodeURIComponent("Habari STEA! Nahitaji msaada wa kutuma pesa nje ya nchi. Tafadhali niongoze.");
+const WA_CHINA = "https://wa.me/8619715852043?text=" + encodeURIComponent("Habari STEA! Nahitaji msaada wa kutuma pesa China. Ninaomba mwongozo.");
+const WA_RATE  = "https://wa.me/8619715852043?text=" + encodeURIComponent("Habari STEA! Ningependa kujua rate ya leo ya kubadilisha pesa. Tafadhali nisaidie.");
+const WA_SAFE  = "https://wa.me/8619715852043?text=" + encodeURIComponent("Habari STEA! Nahitaji ushauri wa njia salama ya kutuma pesa nje ya nchi.");
 
 const W = ({ children, style = {} }) => (
   <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 clamp(16px,4vw,40px)", ...style }}>
