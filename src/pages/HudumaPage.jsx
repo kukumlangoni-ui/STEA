@@ -93,7 +93,7 @@ export default function HudumaPage() {
         <div style={{ background:'rgba(255,255,255,.02)', border:'1px solid rgba(255,255,255,.05)', borderRadius:24, padding: isMobile ? '40px 24px' : '60px 40px' }}>
           <h2 style={{ fontSize:28, fontWeight:900, marginBottom:16 }}>Je, una hitaji maalum?</h2>
           <p style={{ color:'rgba(255,255,255,.5)', marginBottom:32, lineHeight:1.6 }}>Wasiliana nasi moja kwa moja kwa msaada wa kiufundi au ushauri wa kidijitali.</p>
-          <a href="https://wa.me/255971585204" target="_blank" rel="noreferrer" style={{
+          <a href="https://wa.me/8619715852043" target="_blank" rel="noreferrer" style={{
             display:'inline-flex', alignItems:'center', gap:10, padding:'16px 32px', background:G, color:'#111', borderRadius:14, fontWeight:900, textDecoration:'none', fontSize:16
           }}>
             Ongea Nasi WhatsApp <ArrowRight size={20}/>
