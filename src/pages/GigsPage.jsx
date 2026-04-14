@@ -130,7 +130,7 @@ function PostGigModal({ onClose }) {
               </Field>
               <div style={{ display:"flex", gap:10 }}>
                 <button onClick={() => setStep(1)} style={{ flex:1, height:50, borderRadius:14, border:`1px solid ${BORDER}`, background:"transparent", color:"rgba(255,255,255,.6)", fontWeight:700, cursor:"pointer" }}>← Rudi</button>
-                <a href={`https://wa.me/255971585204?text=${encodeURIComponent(`*STEA GIGS — TUMA KAZI*\n\nKazi: ${form.title}\nAina: ${form.type}\nBudget: ${form.budget}\nMahali: ${form.location}\nSkills: ${form.skills}\nKampuni: ${form.company}\nMawasiliano: ${form.contact}\n\nMaelezo:\n${form.desc}`)}`}
+                <a href={`https://wa.me/8619715852043?text=${encodeURIComponent(`*STEA GIGS — TUMA KAZI*\n\nKazi: ${form.title}\nAina: ${form.type}\nBudget: ${form.budget}\nMahali: ${form.location}\nSkills: ${form.skills}\nKampuni: ${form.company}\nMawasiliano: ${form.contact}\n\nMaelezo:\n${form.desc}`)}`}
                   target="_blank" rel="noreferrer"
                   style={{ flex:2, height:50, borderRadius:14, border:"none", background:`linear-gradient(135deg,${G},${G2})`, color:"#111", fontWeight:900, fontSize:15, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10, textDecoration:"none" }}>
                   <Send size={16}/> Tuma kupitia WhatsApp
@@ -175,7 +175,7 @@ function ApplyModal({ gig, onClose }) {
           <Field label="Proposal Yako (kwa nini WEWE?)">
             <textarea value={form.proposal} onChange={e => setForm({...form, proposal:e.target.value})} placeholder="Eleza kwa ufupi kwa nini unastahili kazi hii, uzoefu wako, na unaweza kuanza lini..." style={{ ...inputStyle, height:110, resize:"vertical", paddingTop:14 }}/>
           </Field>
-          <a href={`https://wa.me/255971585204?text=${encodeURIComponent(waMsg)}`} target="_blank" rel="noreferrer"
+          <a href={`https://wa.me/8619715852043?text=${encodeURIComponent(waMsg)}`} target="_blank" rel="noreferrer"
             style={{ height:50, borderRadius:14, border:"none", background:`linear-gradient(135deg,#25d366,#1ab855)`, color:"#fff", fontWeight:900, fontSize:15, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10, textDecoration:"none" }}>
             <MessageCircle size={18}/> Tuma Application (WhatsApp)
           </a>
