@@ -1,0 +1,256 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ───────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.get('email', '').toLowerCase() == 'swahilitecheliteacademy@gmail.com' ||
+        request.auth.token.get('email', '').toLowerCase() == 'isayamasika100@gmail.com'         ||
+        request.auth.token.get('email', '').toLowerCase() == 'kukumlangoni@gmail.com'            ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isRecentTimestamp(ts) {
+      return ts is timestamp &&
+             ts > request.time - duration.value(10, 'm') &&
+             ts < request.time + duration.value(5,  'm');
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+             email.matches('^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role'])
+          && data.uid   is string && data.uid.size()   < 128
+          && data.email is string && isValidEmail(data.email)
+          && data.role  in ['user', 'admin'];
+    }
+
+    // Content rule — lenient: allows both https:// URLs and data: base64 images
+    // Also allows empty imageUrl (no image)
+    function isValidContent(data) {
+      let title = data.get('title', data.get('name', ''));
+      let body  = data.get('content', data.get('description', ''));
+      return title is string && title.size() > 0 && title.size() < 500
+          && body  is string && body.size()  < 100000;
+    }
+
+    function isOnlyViewsUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views'])
+          && request.resource.data.views is number
+          && request.resource.data.views == resource.data.views + 1;
+    }
+
+    function isValidOrder(data) {
+      return data.orderId is string && data.userId is string
+          && data.customerName is string && data.productId is string
+          && data.amount is number
+          && data.orderStatus in ['pending','awaiting_payment_review','approved','rejected','completed','cancelled']
+          && data.createdAt is timestamp;
+    }
+
+    function isValidPayment(data) {
+      return data.userId       is string
+          && data.usernameEmail is string
+          && data.amountPaid   is number
+          && data.paymentMethod is string
+          && data.status in ['pending','approved','rejected']
+          && data.submittedAt is timestamp;
+    }
+
+    function isValidSubscription(data) {
+      return data.subscriptionId is string && data.orderId is string
+          && data.userId is string
+          && data.status in ['active','expiring_soon','expired','cancelled']
+          && data.startDate is timestamp && data.accessActive is bool;
+    }
+
+    function isValidDelivery(data) {
+      return data.deliveryId is string && data.orderId is string
+          && data.userId is string
+          && data.deliveryStatus in ['pending','processing','sent','customer_confirmed'];
+    }
+
+    // ── Users ─────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read:   if isOwner(userId) || isAdmin();
+      allow list:   if isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data)
+                      && request.resource.data.uid == userId
+                      && (request.resource.data.role == 'user' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data)
+                      && request.resource.data.uid == resource.data.uid
+                      && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    // ── Public read / admin write collections ─────────────────
+    // tips, updates, posts, deals, courses, products, websites,
+    // prompts, necta, exams, news, ai, shop, gigs, study_resources
+    match /tips/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /updates/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /posts/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /deals/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if isAdmin() && isValidContent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    match /courses/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if isAdmin() && isValidContent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    match /products/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if isAdmin() && isValidContent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    match /marketplace/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if isAdmin() && isValidContent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    match /websites/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if isAdmin() && isValidContent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    match /prompts/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if isAdmin() && isValidContent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    match /necta/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /exams/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /news/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /ai/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /shop/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /gigs/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidContent(request.resource.data);
+      allow update: if (isAdmin() && isValidContent(request.resource.data)) || isOnlyViewsUpdate();
+      allow delete: if isAdmin();
+    }
+    match /study_resources/{id} {
+      allow read, list: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── Settings / config ─────────────────────────────────────
+    match /site_settings/{id}  { allow read, list: if true; allow write: if isAdmin(); }
+    match /adminSettings/{id}  { allow read:       if true; allow write: if isAdmin(); }
+    match /faqs/{id}           { allow read, list: if true; allow write: if isAdmin(); }
+    match /university_guide/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /paymentSettings/{id}  { allow read, list: if true; allow write: if isAdmin(); }
+    match /vpnInstructions/{id}  { allow read: if true; allow write: if isAdmin(); }
+    match /message_templates/{id} { allow read, list: if isAdmin(); allow write: if isAdmin(); }
+
+    // ── Ads ───────────────────────────────────────────────────
+    match /sponsored_ads/{id} {
+      allow read, list: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Orders / Commerce ─────────────────────────────────────
+    match /orders/{id} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow create: if isAuthenticated()
+                      && request.resource.data.userId == request.auth.uid
+                      && isValidOrder(request.resource.data);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    match /payments/{id} {
+      allow read, list: if isAdmin();
+      allow create: if isAuthenticated() && isValidPayment(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+    match /subscriptions/{id} {
+      allow read, list: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow write: if isAdmin();
+    }
+    match /deliveries/{id} {
+      allow read, list: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // ── VPN ───────────────────────────────────────────────────
+    match /vpnSources/{id} {
+      allow read, list: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+                    (isAuthenticated() &&
+                     resource.data.status == 'available' &&
+                     request.resource.data.status == 'assigned' &&
+                     request.resource.data.assignedTo == request.auth.uid);
+    }
+    match /vpnConfigs/{id}     { allow read, list: if isAuthenticated(); allow write: if isAdmin(); }
+
+    // ── Connection test ───────────────────────────────────────
+    match /_connection_test_/{id} { allow read: if true; }
+
+    // ── Default deny ─────────────────────────────────────────
+    match /{path=**} { allow read, write: if false; }
+  }
+}
