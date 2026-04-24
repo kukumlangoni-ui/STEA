@@ -1,0 +1,203 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isNotDisabled() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return userDoc.data == null || userDoc.data.status != 'disabled';
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() &&
+        (
+          (request.auth.token.email != null && request.auth.token.email.toLowerCase() == "isayamasika100@gmail.com") ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           (getUserData().role == 'admin' || getUserData().role == 'super_admin'))
+        );
+    }
+
+    function isManager(sector) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             getUserData().role == 'manager' &&
+             getUserData().sector == sector;
+    }
+
+    function canApprove(sector) {
+      return isSuperAdmin() || isManager(sector);
+    }
+
+    function canPublishDirectly() {
+      return isSuperAdmin() || (
+        isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        getUserData().canPublishDirect == true
+      );
+    }
+
+    function isValidContent(data) {
+      return data.ownerId is string &&
+             data.ownerName is string &&
+             data.sector is string &&
+             data.status in ['draft', 'pending_review', 'approved', 'published', 'active', 'rejected'] &&
+             ((data.published is bool) || (data.isActive is bool)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidContentCreate(data) {
+      return isValidContent(data) &&
+             data.ownerId == request.auth.uid &&
+             (canPublishDirectly() || (data.status == 'pending_review' && (data.get('published', false) == false && data.get('isActive', false) == false)));
+    }
+
+    function isValidContentUpdate(data, sector) {
+      return isValidContent(data) && (
+        canApprove(sector) || (
+          isOwner(resource.data.ownerId) && 
+          data.ownerId == resource.data.ownerId &&
+          (canPublishDirectly() || (data.status == 'pending_review' && (data.get('published', false) == false && data.get('isActive', false) == false)))
+        )
+      );
+    }
+
+    function isValidServiceRequest(data) {
+      return data.name is string &&
+             data.phone is string &&
+             data.serviceType is string &&
+             data.status == 'new';
+    }
+
+    match /service_requests/{requestId} {
+      allow create: if isValidServiceRequest(request.resource.data);
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSuperAdmin() || isOwner(userId);
+      allow list: if isSuperAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isSuperAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidContentCreate(request.resource.data);
+      allow update: if isAuthenticated() && isValidContentUpdate(request.resource.data, resource.data.sector);
+      allow delete: if isSuperAdmin() || isManager(resource.data.sector) || isOwner(resource.data.ownerId);
+    }
+
+    match /marketplace/{docId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /advert_requests/{adId} {
+      allow create: if isAuthenticated();
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /_connection_test_/{docId} {
+      allow read: if true;
+    }
+
+    match /{collectionName}/{docId} {
+      function isPublicCollection() {
+        return collectionName in ['tips', 'updates', 'news', 'websites', 'prompts', 'deals', 'courses', 'study_resources', 'posts', 'ai', 'gigs', 'products', 'marketplace'];
+      }
+
+      function isPublished() {
+        return resource != null && resource.data.published == true;
+      }
+
+      function hasAccess() {
+        return isAuthenticated() && (isSuperAdmin() || isManager(resource.data.sector) || isOwner(resource.data.ownerId));
+      }
+
+      allow read: if collectionName in ['study_resources', 'posts', 'tips', 'updates', 'necta', 'exams', 'ai', 'gigs', 'prompts', 'deals', 'courses', 'websites', 'news', 'products', 'marketplace'];
+      
+      allow create: if collectionName in ['study_resources', 'posts', 'tips', 'updates', 'necta', 'exams', 'ai', 'gigs', 'prompts', 'deals', 'courses', 'websites', 'news'] &&
+                      (isAuthenticated() && isValidContentCreate(request.resource.data));
+      
+      allow update: if collectionName in ['study_resources', 'posts', 'tips', 'updates', 'necta', 'exams', 'ai', 'gigs', 'prompts', 'deals', 'courses', 'websites', 'news'] &&
+                      (isSuperAdmin() || (isAuthenticated() && isValidContentUpdate(request.resource.data, resource.data.sector)));
+      
+      allow delete: if collectionName in ['study_resources', 'posts', 'tips', 'updates', 'necta', 'exams', 'ai', 'gigs', 'prompts', 'deals', 'courses', 'websites', 'news'] &&
+                      (isSuperAdmin() || isManager(resource.data.sector) || isOwner(resource.data.ownerId));
+    }
+
+    match /orders/{orderId} {
+      allow read, list: if isAuthenticated() && (isOwner(resource.data.userId) || isSuperAdmin() || isOwner(resource.data.get('sellerId', '')));
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSuperAdmin() || isOwner(resource.data.get('sellerId', ''));
+      allow delete: if isSuperAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read, list: if isSuperAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /sponsored_ads/{adId} {
+      allow read, list: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /deliveries/{docId} {
+      allow read, list: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    match /subscriptions/{docId} {
+      allow read, list: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    match /site_settings/{settingId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /vpnSources/{sourceId} {
+      allow read, list: if isAuthenticated();
+      allow update: if isAuthenticated() && (isSuperAdmin() || (resource.data.status == 'available' && request.resource.data.status == 'assigned'));
+      allow create, delete: if isSuperAdmin();
+    }
+
+    match /message_templates/{docId} {
+      allow read: if isAuthenticated() && isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    match /faqs/{docId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /fcm_tokens/{docId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == docId;
+    }
+
+    match /vpnInstructions/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
