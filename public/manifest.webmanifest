@@ -1,0 +1,66 @@
+{
+  "name": "STEA — Digital Ecosystem",
+  "short_name": "STEA",
+  "description": "Student Center, Tech Hub, Services & Shop — Tanzania's premium multi-service platform.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#06080f",
+  "theme_color": "#06080f",
+  "lang": "en-TZ",
+  "categories": ["education", "productivity", "shopping"],
+  "icons": [
+    {
+      "src": "/icons/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/pwa-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Student Center",
+      "short_name": "Students",
+      "url": "/exams",
+      "description": "NECTA results, past papers, notes & university guide",
+      "icons": [{ "src": "/icons/pwa-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Tech Hub",
+      "short_name": "Tech",
+      "url": "/tech",
+      "description": "AI tools, tech tips & digital resources",
+      "icons": [{ "src": "/icons/pwa-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "STEA Shop",
+      "short_name": "Shop",
+      "url": "/duka",
+      "description": "Tech products & digital assets",
+      "icons": [{ "src": "/icons/pwa-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/stea-logo-main.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "STEA Home Screen"
+    }
+  ]
+}
